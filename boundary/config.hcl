@@ -15,7 +15,7 @@ worker {
   name = "kamvdi-worker"
   description = "KamVDI Boundary Worker"
 
-  controllers = ["boundary:9201"]
+  initial_upstreams = ["boundary:9201"]
 
   public_addr = "boundary"
 }
