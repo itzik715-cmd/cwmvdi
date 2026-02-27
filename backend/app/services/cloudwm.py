@@ -6,6 +6,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache shared across all CloudWMClient instances
+# Key: (api_url, client_id) → {"data": dict, "expires": float, "token": str, "token_expires": float}
+_shared_cache: dict[tuple[str, str], dict] = {}
+
 
 class CloudWMClient:
     """Client for Kamatera CloudWM API. Supports per-tenant API URLs."""
@@ -14,18 +18,20 @@ class CloudWMClient:
         self.base_url = api_url.rstrip("/")
         self.client_id = client_id
         self.secret = secret
-        self._token: str | None = None
-        self._token_expires: float = 0
-        self._server_options: dict | None = None
-        self._server_options_expires: float = 0
+        self._cache_key = (self.base_url, self.client_id)
+        # Restore token from shared cache
+        cached = _shared_cache.get(self._cache_key, {})
+        self._token: str | None = cached.get("token")
+        self._token_expires: float = cached.get("token_expires", 0)
 
     async def _get_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=120.0, verify=True)
 
     async def _get_server_options(self) -> dict:
-        """GET /server — cached for 5 minutes (returns all options: datacenters, images, networks)."""
-        if self._server_options and time.time() < self._server_options_expires:
-            return self._server_options
+        """GET /server — cached for 30 minutes across all requests."""
+        cached = _shared_cache.get(self._cache_key, {})
+        if cached.get("data") and time.time() < cached.get("options_expires", 0):
+            return cached["data"]
 
         async with await self._get_client() as client:
             resp = await client.get(
@@ -33,9 +39,13 @@ class CloudWMClient:
                 headers=await self._auth_headers(),
             )
             resp.raise_for_status()
-            self._server_options = resp.json()
-            self._server_options_expires = time.time() + 300
-            return self._server_options
+            data = resp.json()
+
+        # Store in shared cache
+        entry = _shared_cache.setdefault(self._cache_key, {})
+        entry["data"] = data
+        entry["options_expires"] = time.time() + 1800  # 30 minutes
+        return data
 
     async def authenticate(self) -> str:
         """POST /authenticate — returns a session token."""
@@ -51,6 +61,10 @@ class CloudWMClient:
             data = resp.json()
             self._token = data["authentication"]
             self._token_expires = data.get("expires", time.time() + 3600)
+            # Persist token in shared cache
+            entry = _shared_cache.setdefault(self._cache_key, {})
+            entry["token"] = self._token
+            entry["token_expires"] = self._token_expires
             return self._token
 
     async def _auth_headers(self) -> dict:
