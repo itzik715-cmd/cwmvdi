@@ -4,17 +4,22 @@ package notify
 
 import (
 	"log"
-
-	"github.com/go-toast/toast"
+	"os/exec"
 )
 
 func showWindows(title, message string) {
-	notification := toast.Notification{
-		AppID:   "KamVDI",
-		Title:   title,
-		Message: message,
-	}
-	if err := notification.Push(); err != nil {
+	// Use PowerShell for Windows toast notifications (no external deps)
+	script := `
+	[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+	[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+	$template = '<toast><visual><binding template="ToastText02"><text id="1">` + title + `</text><text id="2">` + message + `</text></binding></visual></toast>'
+	$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+	$xml.LoadXml($template)
+	$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+	[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("KamVDI").Show($toast)
+	`
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	if err := cmd.Run(); err != nil {
 		log.Printf("Toast notification failed: %v", err)
 	}
 }

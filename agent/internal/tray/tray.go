@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/config"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/notify"
 )
