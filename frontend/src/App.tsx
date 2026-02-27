@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -15,6 +15,7 @@ import AdminNetworks from "./pages/admin/Networks";
 import { api } from "./services/api";
 
 function App() {
+  const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -80,9 +81,8 @@ function App() {
           <button
             className="btn-primary"
             onClick={() => {
-              // Temporarily allow access to settings
               setUser({ ...user, cloudwm_setup_required: false });
-              window.location.href = "/admin/settings";
+              navigate("/admin/settings");
             }}
           >
             Go to Settings
