@@ -277,6 +277,33 @@ async def _provision_desktop_background(
             except Exception:
                 pass
 
+            # Register desktop with Boundary if tenant has a project
+            if desktop.vm_private_ip:
+                try:
+                    tenant_result = await db.execute(
+                        select(Tenant).where(Tenant.id == tenant_id)
+                    )
+                    tenant = tenant_result.scalar_one_or_none()
+                    if (
+                        tenant
+                        and tenant.boundary_project_id
+                        and tenant.boundary_host_catalog_id
+                        and tenant.boundary_host_set_id
+                    ):
+                        boundary = await _get_boundary()
+                        bt = await boundary.setup_desktop_target(
+                            project_id=tenant.boundary_project_id,
+                            host_catalog_id=tenant.boundary_host_catalog_id,
+                            host_set_id=tenant.boundary_host_set_id,
+                            desktop_name=desktop.display_name.lower().replace(" ", "-"),
+                            vm_ip=desktop.vm_private_ip,
+                        )
+                        desktop.boundary_target_id = bt["target_id"]
+                        desktop.boundary_host_id = bt["host_id"]
+                        logger.info("Boundary target created for desktop %s: %s", desktop_id, bt["target_id"])
+                except Exception:
+                    logger.exception("Failed to create Boundary target for desktop %s", desktop_id)
+
             await db.commit()
             logger.info("Desktop %s provisioned successfully (server: %s)", desktop_id, server_id)
 
@@ -649,6 +676,31 @@ async def test_cloudwm_connection(
         raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
 
+async def _ensure_boundary_project(tenant: Tenant, db: AsyncSession) -> None:
+    """Ensure the tenant has a Boundary project. Create one if missing."""
+    if tenant.boundary_project_id:
+        return  # Already set up
+
+    if not settings.boundary_auth_method_id or not settings.boundary_org_id:
+        logger.warning("Boundary not configured (missing auth_method_id or org_id), skipping project setup")
+        return
+
+    try:
+        boundary = await _get_boundary()
+        result = await boundary.setup_tenant_project(
+            tenant_name=tenant.slug or str(tenant.id)[:8],
+            org_id=settings.boundary_org_id,
+        )
+        tenant.boundary_org_id = settings.boundary_org_id
+        tenant.boundary_project_id = result["project_id"]
+        tenant.boundary_host_catalog_id = result["host_catalog_id"]
+        tenant.boundary_host_set_id = result["host_set_id"]
+        await db.commit()
+        logger.info("Boundary project created for tenant %s: %s", tenant.id, result["project_id"])
+    except Exception:
+        logger.exception("Failed to create Boundary project for tenant %s", tenant.id)
+
+
 async def _discover_system_server(
     tenant: Tenant, api_url: str, client_id: str, secret: str, db: AsyncSession,
 ) -> dict:
@@ -678,6 +730,8 @@ async def _discover_system_server(
             await db.commit()
             # Auto-sync images and networks
             await _sync_cached_data(tenant, cloudwm, db)
+            # Auto-setup Boundary project for this tenant
+            await _ensure_boundary_project(tenant, db)
             return {
                 "discover_status": "found",
                 "system_server_id": server["id"],
@@ -800,6 +854,8 @@ async def select_system_server(
 
     # Auto-sync
     await _sync_cached_data(tenant, cloudwm, db)
+    # Auto-setup Boundary project
+    await _ensure_boundary_project(tenant, db)
 
     return {
         "system_server_id": server["id"],

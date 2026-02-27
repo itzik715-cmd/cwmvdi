@@ -18,11 +18,12 @@ class Settings(BaseSettings):
     encryption_key: str = "changeme-generate-with-openssl-rand-hex-32"
 
     # Boundary
-    boundary_url: str = "https://103.45.244.158:9200"
-    boundary_auth_method_id: str = "ampw_bRddZwbskJ"
+    boundary_url: str = "http://boundary:9200"
+    boundary_auth_method_id: str = ""
     boundary_admin_login: str = "admin"
     boundary_admin_password: str = "changeme"
     boundary_tls_insecure: bool = True
+    boundary_org_id: str = ""
 
     # CloudWM defaults
     cloudwm_api_url: str = "https://console.clubvps.com/service"

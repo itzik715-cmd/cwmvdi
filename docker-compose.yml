@@ -53,6 +53,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  boundary:
+    image: hashicorp/boundary:0.16
+    command: ["server", "-config", "/boundary/config.hcl"]
+    volumes:
+      - ./boundary/config.hcl:/boundary/config.hcl:ro
+      - ./boundary/init.sh:/boundary/init.sh:ro
+    ports:
+      - "9200:9200"
+      - "9202:9202"
+    environment:
+      BOUNDARY_POSTGRES_URL: "postgresql://kamvdi:${POSTGRES_PASSWORD}@postgres:5432/boundary?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     restart: unless-stopped
