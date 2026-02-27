@@ -7,7 +7,7 @@ import (
 	"os/exec"
 )
 
-func showMac(title, message string) {
+func showPlatform(title, message string) {
 	script := `display notification "` + message + `" with title "` + title + `"`
 	cmd := exec.Command("osascript", "-e", script)
 	if err := cmd.Run(); err != nil {

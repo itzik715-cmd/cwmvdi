@@ -7,8 +7,7 @@ import (
 	"os/exec"
 )
 
-func showWindows(title, message string) {
-	// Use PowerShell for Windows toast notifications (no external deps)
+func showPlatform(title, message string) {
 	script := `
 	[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 	[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
