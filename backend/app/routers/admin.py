@@ -161,12 +161,38 @@ async def list_all_desktops(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    tenant = await _get_tenant(db, admin.tenant_id)
+
     result = await db.execute(
         select(DesktopAssignment)
         .where(DesktopAssignment.tenant_id == admin.tenant_id)
         .order_by(DesktopAssignment.created_at)
     )
     desktops = result.scalars().all()
+
+    # Refresh states from CloudWM for active desktops (non-blocking best effort)
+    if tenant.cloudwm_client_id and desktops:
+        try:
+            cloudwm = CloudWMClient(
+                api_url=tenant.cloudwm_api_url,
+                client_id=tenant.cloudwm_client_id,
+                secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+            )
+            servers = await cloudwm.list_servers()
+            server_map = {s["id"]: s.get("power", "").lower() for s in servers}
+
+            for d in desktops:
+                if d.current_state == "provisioning":
+                    continue  # don't override provisioning state
+                power = server_map.get(d.cloudwm_server_id)
+                if power:
+                    new_state = "on" if power == "on" else "off" if power == "off" else d.current_state
+                    if new_state != d.current_state:
+                        d.current_state = new_state
+                        d.last_state_check = datetime.utcnow()
+            await db.commit()
+        except Exception:
+            logger.warning("Failed to refresh desktop states from CloudWM")
 
     # Get user emails for display
     user_ids = [d.user_id for d in desktops if d.user_id]
@@ -225,16 +251,14 @@ async def _provision_desktop_background(
                 logger.error("VM provisioning failed for desktop %s (command %d)", desktop_id, command_id)
                 return
 
-            # Extract server ID from queue log
-            server_id = ""
-            log_text = queue_result.get("log", "")
-            if log_text:
-                for line in log_text.split("\n"):
-                    if "server" in line.lower() and ("id" in line.lower() or "created" in line.lower()):
-                        server_id = line.strip()
-                        break
-            if not server_id:
-                server_id = str(command_id)
+            # Find the actual server UUID by name
+            server_id = str(command_id)  # fallback
+            try:
+                server_info = await cloudwm.find_server_by_name(vm_name)
+                if server_info:
+                    server_id = server_info.get("id", server_id)
+            except Exception:
+                logger.warning("Could not find server by name %s", vm_name)
 
             desktop.cloudwm_server_id = server_id
             desktop.current_state = "on"
@@ -246,9 +270,9 @@ async def _provision_desktop_background(
                 if isinstance(networks, list):
                     for net in networks:
                         if isinstance(net, dict):
-                            ip = net.get("ip", net.get("ips", ""))
-                            if ip and isinstance(ip, str):
-                                desktop.vm_private_ip = ip
+                            ips = net.get("ips", [])
+                            if isinstance(ips, list) and ips:
+                                desktop.vm_private_ip = ips[0]
                                 break
             except Exception:
                 pass

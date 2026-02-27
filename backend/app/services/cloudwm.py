@@ -81,6 +81,24 @@ class CloudWMClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def list_servers(self) -> list[dict]:
+        """GET /servers — list all servers."""
+        async with await self._get_client() as client:
+            resp = await client.get(
+                f"{self.base_url}/servers",
+                headers=await self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def find_server_by_name(self, name: str) -> dict | None:
+        """Find a server by its name, return {id, name, power}."""
+        servers = await self.list_servers()
+        for s in servers:
+            if s.get("name") == name:
+                return s
+        return None
+
     async def get_server_state(self, server_id: str) -> str:
         """Returns: 'on' | 'off' | 'suspended' | 'unknown'"""
         try:
