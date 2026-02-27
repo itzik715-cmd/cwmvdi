@@ -7,8 +7,6 @@ import (
 	"io"
 	"os/exec"
 	"strings"
-
-	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/config"
 )
 
 // connectOutput represents the JSON output from `boundary connect`.
@@ -22,20 +20,24 @@ type connectOutput struct {
 
 // ConnectRDP starts `boundary connect rdp` and returns the local port.
 // The returned *exec.Cmd must be monitored; when it exits the tunnel is closed.
-func ConnectRDP(authzToken string) (int, *exec.Cmd, error) {
-	binPath, err := exec.LookPath(config.BoundaryBinary)
+// portalURL is used to download boundary.exe on first use.
+func ConnectRDP(authzToken, workerAddr, portalURL string) (int, *exec.Cmd, error) {
+	binPath, err := EnsureBinary(portalURL)
 	if err != nil {
-		return 0, nil, fmt.Errorf(
-			"boundary CLI not found in PATH — install from https://www.boundaryproject.io/downloads: %w", err,
-		)
+		return 0, nil, fmt.Errorf("boundary CLI not available: %w", err)
 	}
 
-	cmd := exec.Command(binPath,
+	args := []string{
 		"connect", "rdp",
 		"-authz-token", authzToken,
-		"-listen-port", "0", // OS picks a free port
+		"-listen-port", "0",
 		"-format", "json",
-	)
+	}
+	if workerAddr != "" {
+		args = append(args, "-addr", workerAddr)
+	}
+
+	cmd := exec.Command(binPath, args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
