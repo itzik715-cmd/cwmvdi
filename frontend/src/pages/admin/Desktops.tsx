@@ -85,8 +85,8 @@ export default function Desktops() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!password || password.length < 8) {
-      setError("Password must be at least 8 characters");
+    if (!password || password.length < 12) {
+      setError("Password must be at least 12 characters");
       return;
     }
     setCreating(true);
@@ -245,14 +245,15 @@ export default function Desktops() {
               <div className="form-group">
                 <label>VM Password</label>
                 <input
-                  type="text"
+                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Strong password for RDP access"
                   required
+                  minLength={12}
                 />
                 <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  Min 8 chars. Used for RDP login to the Windows desktop.
+                  Min 12 chars. Used for RDP login to the Windows desktop.
                 </p>
               </div>
 

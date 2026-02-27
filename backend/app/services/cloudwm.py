@@ -226,21 +226,29 @@ class CloudWMClient:
         return images
 
     async def list_networks(self, datacenter: str = "IL-PT") -> list[dict]:
-        """List available VLAN/private networks."""
+        """List available VLAN/private networks for a specific datacenter."""
         data = await self._get_server_options()
 
         networks = []
         raw_networks = data.get("networks", {})
         if isinstance(raw_networks, dict):
-            for name, info in raw_networks.items():
-                if name.startswith("wan"):
-                    continue
-                networks.append({
-                    "name": name,
-                    "subnet": info if isinstance(info, str) else str(info),
-                    "gateway": "",
-                    "datacenter": datacenter,
-                })
+            # Networks are keyed by datacenter ID, each value is a list of network objects
+            dc_nets = raw_networks.get(datacenter, [])
+            if isinstance(dc_nets, list):
+                for net in dc_nets:
+                    if isinstance(net, dict):
+                        name = net.get("name", "")
+                        if name == "wan":
+                            continue
+                        ips = net.get("ips", [])
+                        subnet = ""
+                        if isinstance(ips, list) and ips:
+                            subnet = f"{ips[0]}/{len(ips)} IPs"
+                        networks.append({
+                            "name": name,
+                            "subnet": subnet,
+                            "datacenter": datacenter,
+                        })
         return networks
 
     async def create_network(self, name: str, subnet: str) -> dict:
