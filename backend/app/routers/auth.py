@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import verify_password, create_access_token
 from app.services.mfa import (
@@ -137,8 +138,8 @@ async def logout():
 
 
 @router.get("/me")
-async def get_me(user: User = Depends(get_current_user)):
-    return {
+async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    data = {
         "id": str(user.id),
         "email": user.email,
         "role": user.role,
@@ -146,6 +147,13 @@ async def get_me(user: User = Depends(get_current_user)):
         "must_change_password": user.must_change_password,
         "tenant_id": str(user.tenant_id),
     }
+    # For admin users, include cloudwm_setup_required from tenant
+    if user.role in ("admin", "superadmin"):
+        result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if tenant:
+            data["cloudwm_setup_required"] = tenant.cloudwm_setup_required
+    return data
 
 
 class ChangePasswordRequest(BaseModel):

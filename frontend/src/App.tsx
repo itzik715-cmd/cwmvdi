@@ -67,6 +67,34 @@ function App() {
 
   const isAdmin = user.role === "admin" || user.role === "superadmin";
 
+  // Force CloudWM setup for admin users
+  if (isAdmin && user.cloudwm_setup_required) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", background: "var(--bg)" }}>
+        <div className="card" style={{ maxWidth: 500, textAlign: "center", padding: 40 }}>
+          <h2 style={{ marginBottom: 12 }}>Setup Required</h2>
+          <p style={{ color: "var(--text-muted)", marginBottom: 24 }}>
+            Configure your Kamatera API connection to start managing desktops.
+            You need to create a server named <strong>kamvdi-&#123;userId&#125;</strong> in your Kamatera console first.
+          </p>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              // Temporarily allow access to settings
+              setUser({ ...user, cloudwm_setup_required: false });
+              window.location.href = "/admin/settings";
+            }}
+          >
+            Go to Settings
+          </button>
+          <div style={{ marginTop: 16 }}>
+            <button className="btn-ghost" onClick={handleLogout}>Logout</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route path="/" element={<Dashboard user={user} onLogout={handleLogout} />} />

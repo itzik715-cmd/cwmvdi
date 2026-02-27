@@ -1,24 +1,22 @@
 import { useState, useEffect } from "react";
 import { adminApi } from "../../services/api";
 import StatusBadge from "../../components/StatusBadge";
-import type { AdminDesktop, AdminUser } from "../../types";
+import type { AdminDesktop, AdminUser, TenantSettings } from "../../types";
 
 export default function Desktops() {
   const [desktops, setDesktops] = useState<AdminDesktop[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [settings, setSettings] = useState<TenantSettings | null>(null);
 
-  // Dropdown data
-  const [datacenters, setDatacenters] = useState<{ id: string; name: string }[]>([]);
+  // Dropdown data (from local cache)
   const [images, setImages] = useState<{ id: string; description: string; size_gb: number }[]>([]);
   const [networks, setNetworks] = useState<{ name: string; subnet: string }[]>([]);
-  const [loadingImages, setLoadingImages] = useState(false);
-  const [loadingDCs, setLoadingDCs] = useState(false);
+  const [loadingOptions, setLoadingOptions] = useState(false);
 
   // Form state
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [datacenter, setDatacenter] = useState("");
   const [imageId, setImageId] = useState("");
   const [cpu, setCpu] = useState("2B");
   const [ram, setRam] = useState(4096);
@@ -41,6 +39,7 @@ export default function Desktops() {
   useEffect(() => {
     fetchDesktops();
     adminApi.listUsers().then((res) => setUsers(res.data.filter((u: AdminUser) => u.is_active)));
+    adminApi.getSettings().then((res) => setSettings(res.data));
   }, []);
 
   // Auto-refresh while any desktop is provisioning
@@ -51,48 +50,28 @@ export default function Desktops() {
     return () => clearInterval(interval);
   }, [desktops]);
 
-  // When datacenter changes, reload images and networks
-  useEffect(() => {
-    if (!datacenter) return;
-    setLoadingImages(true);
-    setImageId("");
-    setNetworkName("wan");
-
-    Promise.all([
-      adminApi.getImages(datacenter),
-      adminApi.getNetworks(datacenter),
-    ])
-      .then(([imgRes, netRes]) => {
-        setImages(imgRes.data);
-        setNetworks(netRes.data);
-      })
-      .catch(() => {
-        setImages([]);
-        setNetworks([]);
-      })
-      .finally(() => setLoadingImages(false));
-  }, [datacenter]);
-
   const openCreateModal = async () => {
     setShowModal(true);
     setError(null);
     setDisplayName("");
     setImageId("");
     setPassword("");
-    setDatacenter("");
     setNetworkName("wan");
-    setImages([]);
-    setNetworks([]);
 
-    setLoadingDCs(true);
+    setLoadingOptions(true);
     try {
-      const res = await adminApi.getDatacenters();
-      setDatacenters(res.data || []);
-    } catch (err: any) {
-      setDatacenters([]);
-      setError(err.response?.data?.detail || "Failed to load datacenters. Check CloudWM API settings.");
+      const [imgRes, netRes] = await Promise.all([
+        adminApi.getImages(),
+        adminApi.getNetworks(),
+      ]);
+      setImages(imgRes.data);
+      setNetworks(netRes.data);
+    } catch {
+      setImages([]);
+      setNetworks([]);
+      setError("Failed to load options. Make sure server discovery and sync are complete in Settings.");
     } finally {
-      setLoadingDCs(false);
+      setLoadingOptions(false);
     }
   };
 
@@ -112,7 +91,6 @@ export default function Desktops() {
         cpu,
         ram,
         disk_size: diskSize,
-        datacenter,
         password,
         network_name: networkName,
       });
@@ -258,6 +236,13 @@ export default function Desktops() {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" style={{ minWidth: 520 }} onClick={(e) => e.stopPropagation()}>
             <h2>Create Desktop</h2>
+
+            {settings?.locked_datacenter && (
+              <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>
+                Datacenter: <strong>{settings.locked_datacenter}</strong> (locked to system server)
+              </p>
+            )}
+
             <form onSubmit={handleCreate}>
               <div className="form-group">
                 <label>Assign to User</label>
@@ -280,27 +265,15 @@ export default function Desktops() {
               </div>
 
               <div className="form-group">
-                <label>Datacenter</label>
-                <select value={datacenter} onChange={(e) => setDatacenter(e.target.value)} required disabled={loadingDCs}>
-                  <option value="">
-                    {loadingDCs ? "Loading datacenters..." : "Select datacenter..."}
-                  </option>
-                  {datacenters.map((dc) => (
-                    <option key={dc.id} value={dc.id}>{dc.name} ({dc.id})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
                 <label>OS Image</label>
                 <select
                   value={imageId}
                   onChange={(e) => setImageId(e.target.value)}
                   required
-                  disabled={!datacenter || loadingImages}
+                  disabled={loadingOptions}
                 >
                   <option value="">
-                    {!datacenter ? "Select datacenter first..." : loadingImages ? "Loading images..." : "Select image..."}
+                    {loadingOptions ? "Loading images..." : "Select image..."}
                   </option>
                   {windowsImages.length > 0 && (
                     <optgroup label="Windows">
@@ -339,7 +312,7 @@ export default function Desktops() {
                 <select
                   value={networkName}
                   onChange={(e) => setNetworkName(e.target.value)}
-                  disabled={!datacenter || loadingImages}
+                  disabled={loadingOptions}
                 >
                   <option value="wan">Public (WAN)</option>
                   {networks.map((n) => (

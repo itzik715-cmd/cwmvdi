@@ -30,6 +30,11 @@ def upgrade() -> None:
         sa.Column("boundary_project_id", sa.String(100)),
         sa.Column("boundary_host_catalog_id", sa.String(100)),
         sa.Column("boundary_host_set_id", sa.String(100)),
+        sa.Column("system_server_id", sa.String(100), nullable=True),
+        sa.Column("system_server_name", sa.String(100), nullable=True),
+        sa.Column("locked_datacenter", sa.String(20), nullable=True),
+        sa.Column("last_sync_at", sa.DateTime, nullable=True),
+        sa.Column("cloudwm_setup_required", sa.Boolean, server_default=sa.text("TRUE")),
         sa.Column("suspend_threshold_minutes", sa.Integer, server_default="30"),
         sa.Column("max_session_hours", sa.Integer, server_default="8"),
         sa.Column("created_at", sa.DateTime, server_default=sa.text("NOW()")),
@@ -81,12 +86,37 @@ def upgrade() -> None:
         sa.Column("agent_version", sa.String(20)),
     )
 
+    op.create_table(
+        "cached_images",
+        sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("image_id", sa.String(255), nullable=False),
+        sa.Column("description", sa.String(500)),
+        sa.Column("size_gb", sa.Integer, server_default="0"),
+        sa.Column("datacenter", sa.String(20), nullable=False),
+        sa.Column("synced_at", sa.DateTime, server_default=sa.text("NOW()")),
+    )
+
+    op.create_table(
+        "cached_networks",
+        sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
+        sa.Column("name", sa.String(100), nullable=False),
+        sa.Column("subnet", sa.String(100)),
+        sa.Column("datacenter", sa.String(20), nullable=False),
+        sa.Column("synced_at", sa.DateTime, server_default=sa.text("NOW()")),
+    )
+
     op.create_index("ix_sessions_active", "sessions", ["ended_at"], postgresql_where=sa.text("ended_at IS NULL"))
     op.create_index("ix_desktop_assignments_user", "desktop_assignments", ["user_id"])
     op.create_index("ix_users_tenant", "users", ["tenant_id"])
+    op.create_index("ix_cached_images_tenant", "cached_images", ["tenant_id"])
+    op.create_index("ix_cached_networks_tenant", "cached_networks", ["tenant_id"])
 
 
 def downgrade() -> None:
+    op.drop_table("cached_networks")
+    op.drop_table("cached_images")
     op.drop_table("sessions")
     op.drop_table("desktop_assignments")
     op.drop_table("users")

@@ -52,7 +52,6 @@ export const adminApi = {
     cpu?: string;
     ram?: number;
     disk_size?: number;
-    datacenter?: string;
     password?: string;
     network_name?: string;
   }) => api.post("/admin/desktops", data),
@@ -60,8 +59,8 @@ export const adminApi = {
     api.patch(`/admin/desktops/${id}`, data),
   deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
 
-  getDatacenters: () => api.get("/admin/datacenters"),
-  getImages: (datacenter: string) => api.get("/admin/images", { params: { datacenter } }),
+  getImages: () => api.get("/admin/images"),
+  getNetworks: () => api.get("/admin/networks"),
 
   listSessions: () => api.get("/admin/sessions"),
   terminateSession: (id: string) => api.delete(`/admin/sessions/${id}`),
@@ -78,10 +77,10 @@ export const adminApi = {
     api.put("/admin/settings/cloudwm", data),
   testCloudWM: (data: { api_url: string; client_id: string; secret: string }) =>
     api.post("/admin/settings/cloudwm/test", data),
-
-  getNetworks: (datacenter?: string) => api.get("/admin/networks", { params: { datacenter } }),
-  createNetwork: (data: { name: string; datacenter: string }) =>
-    api.post("/admin/networks", data),
+  discoverServer: () => api.post("/admin/settings/cloudwm/discover"),
+  selectServer: (data: { server_id: string }) =>
+    api.post("/admin/settings/cloudwm/select-server", data),
+  syncFromConsole: () => api.post("/admin/settings/cloudwm/sync"),
 };
 
 // ── Auth APIs ──

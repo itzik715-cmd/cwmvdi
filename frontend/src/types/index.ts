@@ -5,6 +5,7 @@ export interface User {
   mfa_enabled: boolean;
   must_change_password: boolean;
   tenant_id: string;
+  cloudwm_setup_required?: boolean;
 }
 
 export interface Desktop {
@@ -65,6 +66,11 @@ export interface TenantSettings {
   cloudwm_api_url: string;
   cloudwm_client_id: string;
   cloudwm_configured: boolean;
+  cloudwm_setup_required: boolean;
+  system_server_id: string | null;
+  system_server_name: string | null;
+  locked_datacenter: string | null;
+  last_sync_at: string | null;
 }
 
 export interface LoginResponse {

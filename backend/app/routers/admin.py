@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db, async_session
 from app.dependencies import require_admin
+from app.models.cached_data import CachedImage, CachedNetwork
 from app.models.desktop import DesktopAssignment
 from app.models.session import Session
 from app.models.tenant import Tenant
@@ -42,7 +43,6 @@ class CreateDesktopRequest(BaseModel):
     cpu: str = "2B"
     ram: int = 4096
     disk_size: int = 50
-    datacenter: str = "IL-PT"
     password: str = "KamVDI2026Desk!"
     network_name: str = "wan"
 
@@ -316,6 +316,10 @@ async def create_desktop(
 
     if not tenant.cloudwm_client_id:
         raise HTTPException(status_code=400, detail="CloudWM API not configured")
+    if not tenant.locked_datacenter:
+        raise HTTPException(status_code=400, detail="No datacenter configured. Run server discovery first.")
+
+    datacenter = tenant.locked_datacenter
 
     # 1. Create VM in CloudWM
     cloudwm = CloudWMClient(
@@ -333,13 +337,13 @@ async def create_desktop(
     vm_name = f"kamvdi-{account_id}-{req.display_name.lower().replace(' ', '-')}"
 
     # Get the traffic package ID for this datacenter
-    traffic_id = await cloudwm.get_traffic_id(req.datacenter)
+    traffic_id = await cloudwm.get_traffic_id(datacenter)
 
     # Build server params
     server_params = {
         "name": vm_name,
         "password": req.password,
-        "datacenter": req.datacenter,
+        "datacenter": datacenter,
         "disk_src_0": req.image_id,
         "disk_size_0": req.disk_size,
         "cpu": req.cpu,
@@ -590,6 +594,11 @@ async def get_settings_endpoint(
         "cloudwm_api_url": tenant.cloudwm_api_url,
         "cloudwm_client_id": tenant.cloudwm_client_id,
         "cloudwm_configured": bool(tenant.cloudwm_client_id),
+        "cloudwm_setup_required": tenant.cloudwm_setup_required,
+        "system_server_id": tenant.system_server_id,
+        "system_server_name": tenant.system_server_name,
+        "locked_datacenter": tenant.locked_datacenter,
+        "last_sync_at": tenant.last_sync_at.isoformat() if tenant.last_sync_at else None,
     }
 
 
@@ -613,7 +622,13 @@ async def update_cloudwm_settings(
     tenant.cloudwm_client_id = req.client_id
     tenant.cloudwm_secret_encrypted = encrypt_value(req.secret)
     await db.commit()
-    return {"message": "CloudWM credentials saved"}
+
+    # Auto-trigger discover + sync after saving credentials
+    discover_result = await _discover_system_server(tenant, req.api_url, req.client_id, req.secret, db)
+    return {
+        "message": "CloudWM credentials saved",
+        **discover_result,
+    }
 
 
 @router.post("/settings/cloudwm/test")
@@ -634,15 +649,122 @@ async def test_cloudwm_connection(
         raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
 
-# ── Images & Datacenters ──
+async def _discover_system_server(
+    tenant: Tenant, api_url: str, client_id: str, secret: str, db: AsyncSession,
+) -> dict:
+    """Discover kamvdi-* servers and auto-select if exactly one match."""
+    try:
+        cloudwm = CloudWMClient(api_url=api_url, client_id=client_id, secret=secret)
+        servers = await cloudwm.list_servers()
+        matches = [s for s in servers if s.get("name", "").startswith("kamvdi-")]
+
+        if len(matches) == 0:
+            return {"discover_status": "no_match", "servers": []}
+        elif len(matches) == 1:
+            server = matches[0]
+            tenant.system_server_id = server["id"]
+            tenant.system_server_name = server["name"]
+            tenant.locked_datacenter = server.get("datacenter", "")
+            tenant.cloudwm_setup_required = False
+            await db.commit()
+            # Auto-sync images and networks
+            await _sync_cached_data(tenant, cloudwm, db)
+            return {
+                "discover_status": "found",
+                "system_server_id": server["id"],
+                "system_server_name": server["name"],
+                "locked_datacenter": server.get("datacenter", ""),
+            }
+        else:
+            return {
+                "discover_status": "multiple",
+                "servers": [
+                    {"id": s["id"], "name": s["name"], "datacenter": s.get("datacenter", ""), "power": s.get("power", "")}
+                    for s in matches
+                ],
+            }
+    except Exception as e:
+        logger.warning("Server discovery failed: %s", str(e))
+        return {"discover_status": "error", "detail": str(e)}
 
 
-@router.get("/datacenters")
-async def list_datacenters(
+async def _sync_cached_data(tenant: Tenant, cloudwm: CloudWMClient, db: AsyncSession) -> None:
+    """Sync images and networks from CloudWM to local cache."""
+    dc = tenant.locked_datacenter
+    if not dc:
+        return
+
+    # Fetch from Kamatera
+    images = await cloudwm.list_images(datacenter=dc)
+    networks = await cloudwm.list_networks(datacenter=dc)
+
+    # Clear old cached data for this tenant
+    await db.execute(
+        CachedImage.__table__.delete().where(CachedImage.tenant_id == tenant.id)
+    )
+    await db.execute(
+        CachedNetwork.__table__.delete().where(CachedNetwork.tenant_id == tenant.id)
+    )
+
+    # Insert images
+    now = datetime.utcnow()
+    for img in images:
+        db.add(CachedImage(
+            tenant_id=tenant.id,
+            image_id=img["id"],
+            description=img.get("description", ""),
+            size_gb=img.get("size_gb", 0),
+            datacenter=dc,
+            synced_at=now,
+        ))
+
+    # Insert networks
+    for net in networks:
+        db.add(CachedNetwork(
+            tenant_id=tenant.id,
+            name=net["name"],
+            subnet=net.get("subnet", ""),
+            datacenter=dc,
+            synced_at=now,
+        ))
+
+    tenant.last_sync_at = now
+    await db.commit()
+    logger.info("Synced %d images and %d networks for tenant %s (dc: %s)",
+                len(images), len(networks), tenant.id, dc)
+
+
+@router.post("/settings/cloudwm/discover")
+async def discover_system_server(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List available datacenters from CloudWM."""
+    """Discover kamvdi-* servers in Kamatera."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+
+    result = await _discover_system_server(
+        tenant,
+        tenant.cloudwm_api_url,
+        tenant.cloudwm_client_id,
+        decrypt_value(tenant.cloudwm_secret_encrypted),
+        db,
+    )
+    return result
+
+
+class SelectServerRequest(BaseModel):
+    server_id: str
+
+
+@router.post("/settings/cloudwm/select-server")
+async def select_system_server(
+    req: SelectServerRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Select a specific kamvdi-* server when multiple matches found."""
     tenant = await _get_tenant(db, admin.tenant_id)
     if not tenant.cloudwm_client_id:
         raise HTTPException(status_code=400, detail="CloudWM API not configured")
@@ -652,26 +774,73 @@ async def list_datacenters(
         client_id=tenant.cloudwm_client_id,
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
-    return await cloudwm.get_datacenters()
+
+    # Verify the server exists and starts with kamvdi-
+    servers = await cloudwm.list_servers()
+    server = next((s for s in servers if s["id"] == req.server_id and s.get("name", "").startswith("kamvdi-")), None)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found or not a kamvdi server")
+
+    tenant.system_server_id = server["id"]
+    tenant.system_server_name = server["name"]
+    tenant.locked_datacenter = server.get("datacenter", "")
+    tenant.cloudwm_setup_required = False
+    await db.commit()
+
+    # Auto-sync
+    await _sync_cached_data(tenant, cloudwm, db)
+
+    return {
+        "system_server_id": server["id"],
+        "system_server_name": server["name"],
+        "locked_datacenter": server.get("datacenter", ""),
+    }
+
+
+@router.post("/settings/cloudwm/sync")
+async def sync_from_console(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-sync images and networks from Kamatera to local cache."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+    if not tenant.locked_datacenter:
+        raise HTTPException(status_code=400, detail="No system server discovered yet. Run discover first.")
+
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+    await _sync_cached_data(tenant, cloudwm, db)
+    return {"message": "Sync complete", "last_sync_at": tenant.last_sync_at.isoformat()}
+
+
+# ── Images & Networks (from local cache) ──
 
 
 @router.get("/images")
 async def list_images(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    datacenter: str = "IL-PT",
 ):
-    """List available OS images from CloudWM for a datacenter."""
+    """List cached OS images for the tenant's locked datacenter."""
     tenant = await _get_tenant(db, admin.tenant_id)
-    if not tenant.cloudwm_client_id:
-        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+    if not tenant.locked_datacenter:
+        raise HTTPException(status_code=400, detail="No datacenter configured. Run server discovery first.")
 
-    cloudwm = CloudWMClient(
-        api_url=tenant.cloudwm_api_url,
-        client_id=tenant.cloudwm_client_id,
-        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    result = await db.execute(
+        select(CachedImage)
+        .where(CachedImage.tenant_id == tenant.id)
+        .order_by(CachedImage.description)
     )
-    return await cloudwm.list_images(datacenter=datacenter)
+    images = result.scalars().all()
+    return [
+        {"id": img.image_id, "description": img.description, "size_gb": img.size_gb}
+        for img in images
+    ]
 
 
 # ── Networks ──
@@ -681,44 +850,21 @@ async def list_images(
 async def list_networks(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    datacenter: str = "IL-PT",
 ):
-    """List available private networks from CloudWM."""
+    """List cached networks for the tenant's locked datacenter."""
     tenant = await _get_tenant(db, admin.tenant_id)
-    if not tenant.cloudwm_client_id:
-        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+    if not tenant.locked_datacenter:
+        raise HTTPException(status_code=400, detail="No datacenter configured. Run server discovery first.")
 
-    cloudwm = CloudWMClient(
-        api_url=tenant.cloudwm_api_url,
-        client_id=tenant.cloudwm_client_id,
-        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    result = await db.execute(
+        select(CachedNetwork)
+        .where(CachedNetwork.tenant_id == tenant.id)
+        .order_by(CachedNetwork.name)
     )
-    return await cloudwm.list_networks(datacenter=datacenter)
+    networks = result.scalars().all()
+    return [
+        {"name": net.name, "subnet": net.subnet}
+        for net in networks
+    ]
 
 
-class CreateNetworkRequest(BaseModel):
-    name: str
-    datacenter: str = "IL"
-
-
-@router.post("/networks")
-async def create_network(
-    req: CreateNetworkRequest,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a new private VLAN network in CloudWM."""
-    tenant = await _get_tenant(db, admin.tenant_id)
-    if not tenant.cloudwm_client_id:
-        raise HTTPException(status_code=400, detail="CloudWM API not configured")
-
-    cloudwm = CloudWMClient(
-        api_url=tenant.cloudwm_api_url,
-        client_id=tenant.cloudwm_client_id,
-        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
-    )
-    try:
-        result = await cloudwm.create_network(req.name, req.datacenter)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create network: {str(e)}")
