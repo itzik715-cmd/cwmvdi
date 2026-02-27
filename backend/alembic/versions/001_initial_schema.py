@@ -53,7 +53,7 @@ def upgrade() -> None:
     op.create_table(
         "desktop_assignments",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("cloudwm_server_id", sa.String(100), nullable=False),
         sa.Column("boundary_target_id", sa.String(100)),

@@ -23,7 +23,7 @@ export interface ConnectResult {
 
 export interface AdminDesktop extends Desktop {
   user_email: string;
-  user_id: string;
+  user_id: string | null;
   boundary_target_id: string | null;
   is_active: boolean;
   created_at: string;

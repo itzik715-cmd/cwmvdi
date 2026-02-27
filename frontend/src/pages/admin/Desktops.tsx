@@ -28,6 +28,12 @@ export default function Desktops() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Assign modal state
+  const [assignDesktop, setAssignDesktop] = useState<AdminDesktop | null>(null);
+  const [assignUserId, setAssignUserId] = useState<string>("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
   const fetchDesktops = () => {
     adminApi.listDesktops().then((res) => setDesktops(res.data));
   };
@@ -125,6 +131,29 @@ export default function Desktops() {
     fetchDesktops();
   };
 
+  const openAssignModal = (desktop: AdminDesktop) => {
+    setAssignDesktop(desktop);
+    setAssignUserId(desktop.user_id || "");
+    setAssignError(null);
+  };
+
+  const handleAssign = async () => {
+    if (!assignDesktop) return;
+    setAssigning(true);
+    setAssignError(null);
+    try {
+      await adminApi.updateDesktop(assignDesktop.id, {
+        user_id: assignUserId || null,
+      });
+      setAssignDesktop(null);
+      fetchDesktops();
+    } catch (err: any) {
+      setAssignError(err.response?.data?.detail || "Failed to update assignment");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   // Split images: Windows first, then others
   const windowsImages = images.filter((i) => i.description.toLowerCase().includes("windows"));
   const otherImages = images.filter((i) => !i.description.toLowerCase().includes("windows"));
@@ -154,7 +183,14 @@ export default function Desktops() {
             {desktops.map((d) => (
               <tr key={d.id}>
                 <td style={{ fontWeight: 600 }}>{d.display_name}</td>
-                <td>{d.user_email}</td>
+                <td
+                  style={{ cursor: "pointer", color: d.user_id ? "inherit" : "var(--text-muted)" }}
+                  onClick={() => openAssignModal(d)}
+                  title="Click to reassign"
+                >
+                  {d.user_email}{" "}
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>&#9998;</span>
+                </td>
                 <td><StatusBadge state={d.current_state} /></td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>{d.cloudwm_server_id}</td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
@@ -183,6 +219,39 @@ export default function Desktops() {
           </tbody>
         </table>
       </div>
+
+      {/* Assign User Modal */}
+      {assignDesktop && (
+        <div className="modal-overlay" onClick={() => setAssignDesktop(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Assign Desktop</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+              {assignDesktop.display_name}
+            </p>
+            <div className="form-group">
+              <label>Assign to User</label>
+              <select value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)}>
+                <option value="">Unassigned</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.email}</option>
+                ))}
+              </select>
+            </div>
+            {assignError && <p className="error-msg">{assignError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost" onClick={() => setAssignDesktop(null)}>Cancel</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleAssign}
+                disabled={assigning}
+              >
+                {assigning ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Desktop Modal */}
       {showModal && (

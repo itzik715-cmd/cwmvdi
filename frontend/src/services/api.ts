@@ -56,6 +56,8 @@ export const adminApi = {
     password?: string;
     network_name?: string;
   }) => api.post("/admin/desktops", data),
+  updateDesktop: (id: string, data: { user_id: string | null }) =>
+    api.patch(`/admin/desktops/${id}`, data),
   deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
 
   getDatacenters: () => api.get("/admin/datacenters"),

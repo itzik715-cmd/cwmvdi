@@ -47,6 +47,10 @@ class CreateDesktopRequest(BaseModel):
     network_name: str = "wan"
 
 
+class UpdateDesktopRequest(BaseModel):
+    user_id: str | None = None  # None = unassign
+
+
 class UpdateSettingsRequest(BaseModel):
     suspend_threshold_minutes: int | None = None
     max_session_hours: int | None = None
@@ -165,16 +169,18 @@ async def list_all_desktops(
     desktops = result.scalars().all()
 
     # Get user emails for display
-    user_ids = [d.user_id for d in desktops]
-    users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
-    users_map = {u.id: u.email for u in users_result.scalars().all()}
+    user_ids = [d.user_id for d in desktops if d.user_id]
+    users_map = {}
+    if user_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+        users_map = {u.id: u.email for u in users_result.scalars().all()}
 
     return [
         {
             "id": str(d.id),
             "display_name": d.display_name,
-            "user_email": users_map.get(d.user_id, "unknown"),
-            "user_id": str(d.user_id),
+            "user_email": users_map.get(d.user_id, "Unassigned") if d.user_id else "Unassigned",
+            "user_id": str(d.user_id) if d.user_id else None,
             "cloudwm_server_id": d.cloudwm_server_id,
             "current_state": d.current_state,
             "boundary_target_id": d.boundary_target_id,
@@ -362,6 +368,44 @@ async def create_desktop(
         "current_state": "provisioning",
         "message": "VM creation started. This may take a few minutes.",
     }
+
+
+@router.patch("/desktops/{desktop_id}")
+async def update_desktop(
+    desktop_id: str,
+    req: UpdateDesktopRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update desktop assignment — reassign to another user or unassign."""
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    if req.user_id is not None:
+        # Reassign to a different user
+        user_result = await db.execute(
+            select(User).where(
+                User.id == uuid.UUID(req.user_id),
+                User.tenant_id == admin.tenant_id,
+            )
+        )
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        desktop.user_id = user.id
+    else:
+        # Unassign
+        desktop.user_id = None
+
+    await db.commit()
+    return {"message": "Desktop updated"}
 
 
 @router.delete("/desktops/{desktop_id}")
