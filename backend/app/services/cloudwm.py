@@ -297,6 +297,27 @@ class CloudWMClient:
             data = resp.json()
             return {"status": "ok", "data": data}
 
+    async def get_account_user_id(self) -> str:
+        """Get the Kamatera account userId from /svc/ga."""
+        cached = _shared_cache.get(self._cache_key, {})
+        if cached.get("account_user_id"):
+            return cached["account_user_id"]
+
+        # /svc/ga is at the console root, not under /service
+        base = self.base_url.rsplit("/service", 1)[0]
+        async with await self._get_client() as client:
+            resp = await client.get(
+                f"{base}/svc/ga",
+                headers=await self._auth_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            user_id = str(data.get("userId", ""))
+
+        entry = _shared_cache.setdefault(self._cache_key, {})
+        entry["account_user_id"] = user_id
+        return user_id
+
     async def get_datacenters(self) -> list[dict]:
         """List available datacenters."""
         data = await self._get_server_options()

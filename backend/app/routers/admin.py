@@ -294,7 +294,13 @@ async def create_desktop(
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
 
-    vm_name = f"kamvdi-{tenant.slug}-{req.display_name.lower().replace(' ', '-')}"
+    # Get the Kamatera account userId for VM naming
+    try:
+        account_id = await cloudwm.get_account_user_id()
+    except Exception:
+        account_id = tenant.slug
+
+    vm_name = f"kamvdi-{account_id}-{req.display_name.lower().replace(' ', '-')}"
 
     # Get the traffic package ID for this datacenter
     traffic_id = await cloudwm.get_traffic_id(req.datacenter)
