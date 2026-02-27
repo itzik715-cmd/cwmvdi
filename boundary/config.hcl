@@ -17,7 +17,7 @@ worker {
 
   initial_upstreams = ["boundary:9201"]
 
-  public_addr = "boundary"
+  public_addr = "env://BOUNDARY_WORKER_PUBLIC_ADDR"
 }
 
 listener "tcp" {

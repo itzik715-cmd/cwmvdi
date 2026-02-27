@@ -64,6 +64,7 @@ services:
       - "9202:9202"
     environment:
       BOUNDARY_POSTGRES_URL: "postgresql://kamvdi:${POSTGRES_PASSWORD}@postgres:5432/boundary?sslmode=disable"
+      BOUNDARY_WORKER_PUBLIC_ADDR: "${BOUNDARY_WORKER_PUBLIC_ADDR:-91.228.126.46}"
     depends_on:
       postgres:
         condition: service_healthy
