@@ -37,6 +37,14 @@ export default function Desktops() {
     adminApi.listUsers().then((res) => setUsers(res.data.filter((u: AdminUser) => u.is_active)));
   }, []);
 
+  // Auto-refresh while any desktop is provisioning
+  useEffect(() => {
+    const hasProvisioning = desktops.some((d) => d.current_state === "provisioning");
+    if (!hasProvisioning) return;
+    const interval = setInterval(fetchDesktops, 15000);
+    return () => clearInterval(interval);
+  }, [desktops]);
+
   // When datacenter changes, reload images and networks
   useEffect(() => {
     if (!datacenter) return;

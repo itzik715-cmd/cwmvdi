@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import uuid
 from datetime import datetime
 
@@ -7,7 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import get_db, async_session
 from app.dependencies import require_admin
 from app.models.desktop import DesktopAssignment
 from app.models.session import Session
@@ -17,6 +19,8 @@ from app.services.auth import hash_password
 from app.services.boundary import BoundaryClient
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import encrypt_value, decrypt_value
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 settings = get_settings()
@@ -181,13 +185,93 @@ async def list_all_desktops(
     ]
 
 
+async def _provision_desktop_background(
+    desktop_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    cloudwm_api_url: str,
+    cloudwm_client_id: str,
+    cloudwm_secret: str,
+    command_id: int,
+    vm_name: str,
+):
+    """Background task: wait for VM creation, update desktop record."""
+    try:
+        cloudwm = CloudWMClient(
+            api_url=cloudwm_api_url,
+            client_id=cloudwm_client_id,
+            secret=cloudwm_secret,
+        )
+
+        # Wait for VM creation (up to 10 minutes)
+        queue_result = await cloudwm.wait_for_command(command_id, timeout=600)
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(DesktopAssignment).where(DesktopAssignment.id == desktop_id)
+            )
+            desktop = result.scalar_one_or_none()
+            if not desktop:
+                return
+
+            if not queue_result:
+                desktop.current_state = "error"
+                await db.commit()
+                logger.error("VM provisioning failed for desktop %s (command %d)", desktop_id, command_id)
+                return
+
+            # Extract server ID from queue log
+            server_id = ""
+            log_text = queue_result.get("log", "")
+            if log_text:
+                for line in log_text.split("\n"):
+                    if "server" in line.lower() and ("id" in line.lower() or "created" in line.lower()):
+                        server_id = line.strip()
+                        break
+            if not server_id:
+                server_id = str(command_id)
+
+            desktop.cloudwm_server_id = server_id
+            desktop.current_state = "on"
+
+            # Try to get the VM's IP address
+            try:
+                server_data = await cloudwm.get_server(server_id)
+                networks = server_data.get("networks", [])
+                if isinstance(networks, list):
+                    for net in networks:
+                        if isinstance(net, dict):
+                            ip = net.get("ip", net.get("ips", ""))
+                            if ip and isinstance(ip, str):
+                                desktop.vm_private_ip = ip
+                                break
+            except Exception:
+                pass
+
+            await db.commit()
+            logger.info("Desktop %s provisioned successfully (server: %s)", desktop_id, server_id)
+
+    except Exception:
+        logger.exception("Background provisioning failed for desktop %s", desktop_id)
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(DesktopAssignment).where(DesktopAssignment.id == desktop_id)
+                )
+                desktop = result.scalar_one_or_none()
+                if desktop:
+                    desktop.current_state = "error"
+                    await db.commit()
+        except Exception:
+            pass
+
+
 @router.post("/desktops")
 async def create_desktop(
     req: CreateDesktopRequest,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new Windows VM and configure it in Boundary."""
+    """Create a new Windows VM — starts provisioning in background."""
     tenant = await _get_tenant(db, admin.tenant_id)
 
     # Verify user exists
@@ -199,6 +283,9 @@ async def create_desktop(
     user = user_result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
 
     # 1. Create VM in CloudWM
     cloudwm = CloudWMClient(
@@ -237,80 +324,37 @@ async def create_desktop(
     if not command_id:
         raise HTTPException(status_code=500, detail="Failed to create VM — no command ID returned")
 
-    # Wait for VM creation (up to 5 minutes)
-    queue_result = await cloudwm.wait_for_command(command_id, timeout=300)
-    if not queue_result:
-        raise HTTPException(status_code=500, detail="VM creation timed out or failed. Check CloudWM console.")
-
-    # Extract server ID from queue log
-    server_id = ""
-    log_text = queue_result.get("log", "")
-    if log_text:
-        # The log usually contains the server ID/name
-        for line in log_text.split("\n"):
-            if "server" in line.lower() and ("id" in line.lower() or "created" in line.lower()):
-                server_id = line.strip()
-                break
-    if not server_id:
-        # Use command_id as fallback reference
-        server_id = str(command_id)
-
-    # Try to get the VM's IP address
-    vm_ip = None
-    try:
-        server_data = await cloudwm.get_server(server_id)
-        networks = server_data.get("networks", [])
-        if isinstance(networks, list) and networks:
-            for net in networks:
-                if isinstance(net, dict):
-                    ip = net.get("ip", net.get("ips", ""))
-                    if ip:
-                        vm_ip = ip if isinstance(ip, str) else str(ip)
-                        break
-    except Exception:
-        pass  # Server might not be queryable by command_id
-
-    # 2. Register in Boundary (if configured)
-    if tenant.boundary_project_id and tenant.boundary_host_catalog_id:
-        try:
-            boundary = await _get_boundary()
-            boundary_result = await boundary.setup_desktop_target(
-                project_id=tenant.boundary_project_id,
-                host_catalog_id=tenant.boundary_host_catalog_id,
-                host_set_id=tenant.boundary_host_set_id,
-                desktop_name=vm_name,
-                vm_ip=vm_ip or "10.0.0.1",
-            )
-            boundary_target_id = boundary_result["target_id"]
-            boundary_host_id = boundary_result["host_id"]
-        except Exception:
-            boundary_target_id = None
-            boundary_host_id = None
-    else:
-        boundary_target_id = None
-        boundary_host_id = None
-
-    # 3. Create desktop assignment
+    # 2. Create desktop assignment immediately as "provisioning"
     desktop = DesktopAssignment(
         user_id=user.id,
         tenant_id=tenant.id,
-        cloudwm_server_id=server_id,
-        vm_private_ip=vm_ip,
-        boundary_target_id=boundary_target_id,
-        boundary_host_id=boundary_host_id,
+        cloudwm_server_id=str(command_id),
         display_name=req.display_name,
-        current_state="on",
+        current_state="provisioning",
     )
     db.add(desktop)
     await db.commit()
     await db.refresh(desktop)
 
+    # 3. Fire background task to wait for completion and update record
+    asyncio.create_task(
+        _provision_desktop_background(
+            desktop_id=desktop.id,
+            tenant_id=tenant.id,
+            cloudwm_api_url=tenant.cloudwm_api_url,
+            cloudwm_client_id=tenant.cloudwm_client_id,
+            cloudwm_secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+            command_id=command_id,
+            vm_name=vm_name,
+        )
+    )
+
     return {
         "id": str(desktop.id),
         "display_name": desktop.display_name,
-        "cloudwm_server_id": desktop.cloudwm_server_id,
-        "boundary_target_id": desktop.boundary_target_id,
-        "current_state": desktop.current_state,
+        "cloudwm_server_id": str(command_id),
+        "current_state": "provisioning",
+        "message": "VM creation started. This may take a few minutes.",
     }
 
 

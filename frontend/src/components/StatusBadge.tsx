@@ -8,6 +8,8 @@ const labels: Record<string, string> = {
   suspended: "Suspended",
   starting: "Starting...",
   suspending: "Suspending...",
+  provisioning: "Provisioning...",
+  error: "Error",
   unknown: "Unknown",
 };
 
@@ -19,9 +21,11 @@ export default function StatusBadge({ state }: Props) {
         ? "badge-off"
         : state === "suspended"
           ? "badge-suspended"
-          : state === "starting" || state === "suspending"
+          : state === "starting" || state === "suspending" || state === "provisioning"
             ? "badge-starting"
-            : "badge-off";
+            : state === "error"
+              ? "badge-off"
+              : "badge-off";
 
   return <span className={`badge ${cls}`}>{labels[state] || state}</span>;
 }
