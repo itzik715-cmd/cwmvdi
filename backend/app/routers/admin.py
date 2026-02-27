@@ -652,14 +652,23 @@ async def test_cloudwm_connection(
 async def _discover_system_server(
     tenant: Tenant, api_url: str, client_id: str, secret: str, db: AsyncSession,
 ) -> dict:
-    """Discover kamvdi-* servers and auto-select if exactly one match."""
+    """Discover servers tagged kamvdi-{userId} via /svc/serversRuntime."""
     try:
         cloudwm = CloudWMClient(api_url=api_url, client_id=client_id, secret=secret)
-        servers = await cloudwm.list_servers()
-        matches = [s for s in servers if s.get("name", "").startswith("kamvdi-")]
+
+        # Get the account userId to build the expected tag
+        account_id = await cloudwm.get_account_user_id()
+        expected_tag = f"kamvdi-{account_id}"
+
+        # Use /svc/serversRuntime to get servers with tags
+        matches = await cloudwm.find_servers_by_tag(expected_tag)
 
         if len(matches) == 0:
-            return {"discover_status": "no_match", "servers": []}
+            return {
+                "discover_status": "no_match",
+                "servers": [],
+                "expected_tag": expected_tag,
+            }
         elif len(matches) == 1:
             server = matches[0]
             tenant.system_server_id = server["id"]
@@ -679,7 +688,7 @@ async def _discover_system_server(
             return {
                 "discover_status": "multiple",
                 "servers": [
-                    {"id": s["id"], "name": s["name"], "datacenter": s.get("datacenter", ""), "power": s.get("power", "")}
+                    {"id": s["id"], "name": s["name"], "datacenter": s.get("datacenter", ""), "power": s.get("state", "")}
                     for s in matches
                 ],
             }
@@ -775,11 +784,13 @@ async def select_system_server(
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
 
-    # Verify the server exists and starts with kamvdi-
-    servers = await cloudwm.list_servers()
-    server = next((s for s in servers if s["id"] == req.server_id and s.get("name", "").startswith("kamvdi-")), None)
+    # Verify the server exists and has a kamvdi- tag
+    account_id = await cloudwm.get_account_user_id()
+    expected_tag = f"kamvdi-{account_id}"
+    matches = await cloudwm.find_servers_by_tag(expected_tag)
+    server = next((s for s in matches if s["id"] == req.server_id), None)
     if not server:
-        raise HTTPException(status_code=404, detail="Server not found or not a kamvdi server")
+        raise HTTPException(status_code=404, detail="Server not found or not tagged with " + expected_tag)
 
     tenant.system_server_id = server["id"]
     tenant.system_server_name = server["name"]

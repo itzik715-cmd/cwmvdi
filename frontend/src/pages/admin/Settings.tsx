@@ -111,7 +111,7 @@ export default function Settings() {
         setMultipleServers(data.servers || []);
         setCwmSaved(true);
       } else if (data.discover_status === "no_match") {
-        setDiscoverError("No system server found. Create a server named kamvdi-{userId} in your Kamatera console.");
+        setDiscoverError('No system server found. Tag a server with "kamvdi-{userId}" in your Kamatera console.');
         setCwmSaved(true);
       } else if (data.discover_status === "error") {
         setDiscoverError(`Discovery failed: ${data.detail}`);
@@ -139,7 +139,7 @@ export default function Settings() {
       } else if (data.discover_status === "multiple") {
         setMultipleServers(data.servers || []);
       } else if (data.discover_status === "no_match") {
-        setDiscoverError("No system server found. Create a server named kamvdi-{userId} in your Kamatera console.");
+        setDiscoverError('No system server found. Tag a server with "kamvdi-{userId}" in your Kamatera console.');
       } else if (data.discover_status === "error") {
         setDiscoverError(`Discovery failed: ${data.detail}`);
       }
@@ -423,7 +423,7 @@ export default function Settings() {
         <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
           <h3 style={{ marginBottom: 8 }}>System Server</h3>
           <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-            No system server discovered yet. Create a server named <strong>kamvdi-&#123;userId&#125;</strong> in
+            No system server discovered yet. Tag your server with <strong>kamvdi-&#123;userId&#125;</strong> in
             your Kamatera console, then click Discover.
           </p>
           {discoverError && <p className="error-msg" style={{ marginBottom: 8 }}>{discoverError}</p>}

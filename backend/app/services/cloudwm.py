@@ -91,6 +91,31 @@ class CloudWMClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def list_servers_runtime(self) -> list[dict]:
+        """GET /svc/serversRuntime — list servers with full details including tags.
+
+        First fetches server IDs from /servers, then calls /svc/serversRuntime
+        with those IDs to get tags and other runtime info.
+        """
+        servers = await self.list_servers()
+        if not servers:
+            return []
+
+        server_ids = [s["id"] for s in servers]
+        base = self.base_url.rsplit("/service", 1)[0]
+        params = "&".join(f"ids[]={sid}" for sid in server_ids)
+        url = f"{base}/svc/serversRuntime?{params}"
+
+        async with await self._get_client() as client:
+            resp = await client.get(url, headers=await self._auth_headers())
+            resp.raise_for_status()
+            return resp.json()
+
+    async def find_servers_by_tag(self, tag: str) -> list[dict]:
+        """Find servers that have a specific tag."""
+        servers = await self.list_servers_runtime()
+        return [s for s in servers if tag in s.get("tags", [])]
+
     async def find_server_by_name(self, name: str) -> dict | None:
         """Find a server by its name, return {id, name, power}."""
         servers = await self.list_servers()
