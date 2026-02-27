@@ -83,16 +83,52 @@ BOUNDARY_ADDR=http://boundary:9200
 EOF
 chmod 600 .env
 
-# ── SSL ────────────────────────────────────────────────────
+# ── SSL (Let's Encrypt) ───────────────────────────────────
 log "Setting up SSL..."
-mkdir -p nginx/ssl
+mkdir -p nginx/ssl certbot/www
 
-openssl req -x509 -nodes -days 365 \
-  -newkey rsa:2048 \
-  -keyout nginx/ssl/key.pem \
-  -out nginx/ssl/cert.pem \
-  -subj "/CN=${PORTAL_DOMAIN}" 2>/dev/null
-log "SSL certificate generated"
+USE_LE=false
+
+# Install certbot if needed
+if ! command -v certbot &>/dev/null; then
+  log "Installing certbot..."
+  apt-get install -y -qq certbot > /dev/null 2>&1 || true
+fi
+
+if command -v certbot &>/dev/null; then
+  log "Requesting Let's Encrypt certificate for ${PORTAL_DOMAIN}..."
+  if certbot certonly --standalone --non-interactive --agree-tos \
+       --email "${ADMIN_EMAIL}" -d "${PORTAL_DOMAIN}" 2>&1; then
+    # Copy certs to nginx/ssl (containers can't follow host symlinks)
+    cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/fullchain.pem nginx/ssl/cert.pem
+    cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/privkey.pem nginx/ssl/key.pem
+    USE_LE=true
+    log "Let's Encrypt certificate obtained"
+
+    # Auto-renewal cron: renew + copy + reload nginx
+    RENEW_SCRIPT="/etc/cron.d/kamvdi-cert-renew"
+    cat > ${RENEW_SCRIPT} << CRON
+SHELL=/bin/bash
+0 3 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/fullchain.pem $(pwd)/nginx/ssl/cert.pem && cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/privkey.pem $(pwd)/nginx/ssl/key.pem && cd $(pwd) && docker compose exec -T nginx nginx -s reload
+CRON
+    chmod 644 ${RENEW_SCRIPT}
+    log "Auto-renewal cron configured"
+  else
+    warn "Let's Encrypt failed — falling back to self-signed certificate"
+  fi
+else
+  warn "certbot not available — using self-signed certificate"
+fi
+
+# Fallback: self-signed
+if [[ "$USE_LE" == "false" ]]; then
+  openssl req -x509 -nodes -days 365 \
+    -newkey rsa:2048 \
+    -keyout nginx/ssl/key.pem \
+    -out nginx/ssl/cert.pem \
+    -subj "/CN=${PORTAL_DOMAIN}" 2>/dev/null
+  log "Self-signed certificate generated"
+fi
 
 # ── Start ──────────────────────────────────────────────────
 log "Starting services..."
