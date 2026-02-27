@@ -52,8 +52,14 @@ export const adminApi = {
     cpu?: string;
     ram?: number;
     disk_size?: number;
+    datacenter?: string;
+    password?: string;
+    network_name?: string;
   }) => api.post("/admin/desktops", data),
   deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
+
+  getDatacenters: () => api.get("/admin/datacenters"),
+  getImages: (datacenter: string) => api.get("/admin/images", { params: { datacenter } }),
 
   listSessions: () => api.get("/admin/sessions"),
   terminateSession: (id: string) => api.delete(`/admin/sessions/${id}`),
@@ -71,7 +77,7 @@ export const adminApi = {
   testCloudWM: (data: { api_url: string; client_id: string; secret: string }) =>
     api.post("/admin/settings/cloudwm/test", data),
 
-  getNetworks: () => api.get("/admin/networks"),
+  getNetworks: (datacenter?: string) => api.get("/admin/networks", { params: { datacenter } }),
   createNetwork: (data: { name: string; subnet: string }) =>
     api.post("/admin/networks", data),
 };

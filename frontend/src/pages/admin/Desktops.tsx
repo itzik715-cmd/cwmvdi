@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { adminApi, api } from "../../services/api";
+import { adminApi } from "../../services/api";
 import StatusBadge from "../../components/StatusBadge";
 import type { AdminDesktop, AdminUser } from "../../types";
 
@@ -7,15 +7,23 @@ export default function Desktops() {
   const [desktops, setDesktops] = useState<AdminDesktop[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [images, setImages] = useState<{ id: string; description: string }[]>([]);
+
+  // Dropdown data
+  const [datacenters, setDatacenters] = useState<{ id: string; name: string }[]>([]);
+  const [images, setImages] = useState<{ id: string; description: string; size_gb: number }[]>([]);
+  const [networks, setNetworks] = useState<{ name: string; subnet: string }[]>([]);
+  const [loadingImages, setLoadingImages] = useState(false);
 
   // Form state
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [datacenter, setDatacenter] = useState("");
   const [imageId, setImageId] = useState("");
   const [cpu, setCpu] = useState("2B");
   const [ram, setRam] = useState(4096);
   const [diskSize, setDiskSize] = useState(50);
+  const [password, setPassword] = useState("");
+  const [networkName, setNetworkName] = useState("wan");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -28,19 +36,54 @@ export default function Desktops() {
     adminApi.listUsers().then((res) => setUsers(res.data.filter((u: AdminUser) => u.is_active)));
   }, []);
 
+  // When datacenter changes, reload images and networks
+  useEffect(() => {
+    if (!datacenter) return;
+    setLoadingImages(true);
+    setImageId("");
+    setNetworkName("wan");
+
+    Promise.all([
+      adminApi.getImages(datacenter),
+      adminApi.getNetworks(datacenter),
+    ])
+      .then(([imgRes, netRes]) => {
+        setImages(imgRes.data);
+        setNetworks(netRes.data);
+      })
+      .catch(() => {
+        setImages([]);
+        setNetworks([]);
+      })
+      .finally(() => setLoadingImages(false));
+  }, [datacenter]);
+
   const openCreateModal = async () => {
     setShowModal(true);
+    setError(null);
+    setDisplayName("");
+    setImageId("");
+    setPassword("");
+    setDatacenter("");
+    setNetworkName("wan");
+    setImages([]);
+    setNetworks([]);
+
     try {
-      const res = await api.get("/images");
-      setImages(res.data);
+      const res = await adminApi.getDatacenters();
+      setDatacenters(res.data);
     } catch {
-      // ignore
+      setDatacenters([]);
     }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!password || password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
     setCreating(true);
     try {
       await adminApi.createDesktop({
@@ -50,10 +93,11 @@ export default function Desktops() {
         cpu,
         ram,
         disk_size: diskSize,
+        datacenter,
+        password,
+        network_name: networkName,
       });
       setShowModal(false);
-      setDisplayName("");
-      setImageId("");
       fetchDesktops();
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to create desktop");
@@ -67,6 +111,10 @@ export default function Desktops() {
     await adminApi.deleteDesktop(id);
     fetchDesktops();
   };
+
+  // Split images: Windows first, then others
+  const windowsImages = images.filter((i) => i.description.toLowerCase().includes("windows"));
+  const otherImages = images.filter((i) => !i.description.toLowerCase().includes("windows"));
 
   return (
     <div>
@@ -126,7 +174,7 @@ export default function Desktops() {
       {/* Create Desktop Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ minWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ minWidth: 520 }} onClick={(e) => e.stopPropagation()}>
             <h2>Create Desktop</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
@@ -138,6 +186,7 @@ export default function Desktops() {
                   ))}
                 </select>
               </div>
+
               <div className="form-group">
                 <label>Desktop Name</label>
                 <input
@@ -147,22 +196,73 @@ export default function Desktops() {
                   required
                 />
               </div>
+
               <div className="form-group">
-                <label>Windows Image</label>
-                <select value={imageId} onChange={(e) => setImageId(e.target.value)} required>
-                  <option value="">Select image...</option>
-                  {images
-                    .filter((i) => i.description.toLowerCase().includes("windows"))
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>{i.description}</option>
-                    ))}
-                  {images
-                    .filter((i) => !i.description.toLowerCase().includes("windows"))
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>{i.description}</option>
-                    ))}
+                <label>Datacenter</label>
+                <select value={datacenter} onChange={(e) => setDatacenter(e.target.value)} required>
+                  <option value="">Select datacenter...</option>
+                  {datacenters.map((dc) => (
+                    <option key={dc.id} value={dc.id}>{dc.name} ({dc.id})</option>
+                  ))}
                 </select>
               </div>
+
+              <div className="form-group">
+                <label>OS Image</label>
+                <select
+                  value={imageId}
+                  onChange={(e) => setImageId(e.target.value)}
+                  required
+                  disabled={!datacenter || loadingImages}
+                >
+                  <option value="">
+                    {!datacenter ? "Select datacenter first..." : loadingImages ? "Loading images..." : "Select image..."}
+                  </option>
+                  {windowsImages.length > 0 && (
+                    <optgroup label="Windows">
+                      {windowsImages.map((i) => (
+                        <option key={i.id} value={i.id}>{i.description}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherImages.length > 0 && (
+                    <optgroup label="Other">
+                      {otherImages.map((i) => (
+                        <option key={i.id} value={i.id}>{i.description}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>VM Password</label>
+                <input
+                  type="text"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Strong password for RDP access"
+                  required
+                />
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Min 8 chars. Used for RDP login to the Windows desktop.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>Network</label>
+                <select
+                  value={networkName}
+                  onChange={(e) => setNetworkName(e.target.value)}
+                  disabled={!datacenter || loadingImages}
+                >
+                  <option value="wan">Public (WAN)</option>
+                  {networks.map((n) => (
+                    <option key={n.name} value={n.name}>{n.name} — {n.subnet}</option>
+                  ))}
+                </select>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
                 <div className="form-group">
                   <label>CPU</label>
@@ -173,7 +273,7 @@ export default function Desktops() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>RAM (MB)</label>
+                  <label>RAM</label>
                   <select value={ram} onChange={(e) => setRam(Number(e.target.value))}>
                     <option value={2048}>2 GB</option>
                     <option value={4096}>4 GB</option>
@@ -182,7 +282,7 @@ export default function Desktops() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Disk (GB)</label>
+                  <label>Disk</label>
                   <select value={diskSize} onChange={(e) => setDiskSize(Number(e.target.value))}>
                     <option value={40}>40 GB</option>
                     <option value={50}>50 GB</option>
@@ -191,6 +291,7 @@ export default function Desktops() {
                   </select>
                 </div>
               </div>
+
               {error && <p className="error-msg">{error}</p>}
               {creating && (
                 <p style={{ color: "var(--warning)", fontSize: 13, marginTop: 8 }}>

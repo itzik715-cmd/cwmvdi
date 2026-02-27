@@ -38,6 +38,9 @@ class CreateDesktopRequest(BaseModel):
     cpu: str = "2B"
     ram: int = 4096
     disk_size: int = 50
+    datacenter: str = "IL-PT"
+    password: str = "KamVDI2026Desk!"
+    network_name: str = "wan"
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -208,13 +211,13 @@ async def create_desktop(
     create_result = await cloudwm.create_server(
         {
             "name": vm_name,
-            "password": "KamVDI2026Desk!",  # TODO: generate per-VM
-            "datacenter": "IL-PT",
+            "password": req.password,
+            "datacenter": req.datacenter,
             "disk_src_0": req.image_id,
             "disk_size_0": req.disk_size,
             "cpu": req.cpu,
             "ram": req.ram,
-            "network_name_0": "wan",  # Will add private network support later
+            "network_name_0": req.network_name,
             "billing": "hourly",
             "traffic": "t5000",
             "power": True,
@@ -476,6 +479,46 @@ async def test_cloudwm_connection(
         raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
 
+# ── Images & Datacenters ──
+
+
+@router.get("/datacenters")
+async def list_datacenters(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List available datacenters from CloudWM."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+    return await cloudwm.get_datacenters()
+
+
+@router.get("/images")
+async def list_images(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    datacenter: str = "IL-PT",
+):
+    """List available OS images from CloudWM for a datacenter."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+    return await cloudwm.list_images(datacenter=datacenter)
+
+
 # ── Networks ──
 
 
@@ -483,6 +526,7 @@ async def test_cloudwm_connection(
 async def list_networks(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
+    datacenter: str = "IL-PT",
 ):
     """List available private networks from CloudWM."""
     tenant = await _get_tenant(db, admin.tenant_id)
@@ -494,7 +538,7 @@ async def list_networks(
         client_id=tenant.cloudwm_client_id,
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
-    return await cloudwm.list_networks()
+    return await cloudwm.list_networks(datacenter=datacenter)
 
 
 class CreateNetworkRequest(BaseModel):
