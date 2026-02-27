@@ -212,22 +212,24 @@ async def create_desktop(
     # Get the traffic package ID for this datacenter
     traffic_id = await cloudwm.get_traffic_id(req.datacenter)
 
+    # Build server params
+    server_params = {
+        "name": vm_name,
+        "password": req.password,
+        "datacenter": req.datacenter,
+        "disk_src_0": req.image_id,
+        "disk_size_0": req.disk_size,
+        "cpu": req.cpu,
+        "ram": req.ram,
+        "network_name_0": req.network_name,
+        "network_ip_0": "auto",
+        "billing": "hourly",
+        "traffic": traffic_id,
+        "power": True,
+    }
+
     try:
-        create_result = await cloudwm.create_server(
-            {
-                "name": vm_name,
-                "password": req.password,
-                "datacenter": req.datacenter,
-                "disk_src_0": req.image_id,
-                "disk_size_0": req.disk_size,
-                "cpu": req.cpu,
-                "ram": req.ram,
-                "network_name_0": req.network_name,
-                "billing": "hourly",
-                "traffic": traffic_id,
-                "power": True,
-            }
-        )
+        create_result = await cloudwm.create_server(server_params)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"CloudWM API error: {str(e)}")
 

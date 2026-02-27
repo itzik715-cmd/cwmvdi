@@ -163,20 +163,29 @@ class CloudWMClient:
         """Poll a queue command until complete. Returns the queue data on success, None on failure/timeout."""
         start = time.time()
         while time.time() - start < timeout:
-            async with await self._get_client() as client:
-                resp = await client.get(
-                    f"{self.base_url}/queue/{command_id}",
-                    headers=await self._auth_headers(),
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                status = data.get("status", "")
-                logger.info("Command %d status: %s", command_id, status)
-                if status == "complete":
-                    return data
-                if status == "error":
-                    logger.error("Command %d failed: %s", command_id, data.get("log", ""))
-                    return None
+            try:
+                async with await self._get_client() as client:
+                    resp = await client.get(
+                        f"{self.base_url}/queue/{command_id}",
+                        headers=await self._auth_headers(),
+                    )
+                    if resp.status_code >= 500:
+                        logger.warning("Queue poll returned %d for command %d, retrying...", resp.status_code, command_id)
+                        await asyncio.sleep(10)
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    status = data.get("status", "")
+                    logger.info("Command %d status: %s", command_id, status)
+                    if status == "complete":
+                        return data
+                    if status == "error":
+                        logger.error("Command %d failed: %s", command_id, data.get("log", ""))
+                        return None
+            except httpx.HTTPStatusError as e:
+                logger.warning("Queue poll error for command %d: %s", command_id, str(e))
+            except Exception as e:
+                logger.warning("Queue poll exception for command %d: %s", command_id, str(e))
             await asyncio.sleep(10)
         return None
 
