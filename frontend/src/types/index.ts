@@ -10,7 +10,7 @@ export interface User {
 export interface Desktop {
   id: string;
   display_name: string;
-  current_state: "on" | "off" | "suspended" | "starting" | "suspending" | "unknown";
+  current_state: "on" | "off" | "suspended" | "starting" | "suspending" | "provisioning" | "error" | "unknown";
   cloudwm_server_id: string;
   last_state_check: string | null;
 }
