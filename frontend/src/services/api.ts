@@ -72,6 +72,9 @@ export const adminApi = {
   updateSettings: (data: {
     suspend_threshold_minutes?: number;
     max_session_hours?: number;
+    nat_gateway_enabled?: boolean;
+    gateway_lan_ip?: string | null;
+    default_network_name?: string | null;
   }) => api.put("/admin/settings", data),
 
   updateCloudWM: (data: { api_url: string; client_id: string; secret: string }) =>

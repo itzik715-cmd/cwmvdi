@@ -38,6 +38,15 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  // NAT Gateway state
+  const [natEnabled, setNatEnabled] = useState(false);
+  const [gatewayIp, setGatewayIp] = useState("");
+  const [defaultNetwork, setDefaultNetwork] = useState("");
+  const [networks, setNetworks] = useState<{ name: string; subnet: string }[]>([]);
+  const [natSaving, setNatSaving] = useState(false);
+  const [natSaved, setNatSaved] = useState(false);
+  const [natError, setNatError] = useState<string | null>(null);
+
   const loadSettings = () => {
     adminApi.getSettings().then((res) => {
       setSettings(res.data);
@@ -45,7 +54,13 @@ export default function Settings() {
       setMaxHours(res.data.max_session_hours);
       setCwmUrl(res.data.cloudwm_api_url || "");
       setCwmClientId(res.data.cloudwm_client_id || "");
+      setNatEnabled(res.data.nat_gateway_enabled || false);
+      setGatewayIp(res.data.gateway_lan_ip || "");
+      setDefaultNetwork(res.data.default_network_name || "");
     });
+    adminApi.getNetworks().then((res) => {
+      setNetworks(res.data);
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -177,6 +192,26 @@ export default function Settings() {
       setSyncResult(`Sync failed: ${err.response?.data?.detail || "Unknown error"}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleNatSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNatSaving(true);
+    setNatError(null);
+    setNatSaved(false);
+    try {
+      await adminApi.updateSettings({
+        nat_gateway_enabled: natEnabled,
+        gateway_lan_ip: gatewayIp || null,
+        default_network_name: defaultNetwork || null,
+      });
+      setNatSaved(true);
+      setTimeout(() => setNatSaved(false), 3000);
+    } catch (err: any) {
+      setNatError(err.response?.data?.detail || "Failed to save NAT settings");
+    } finally {
+      setNatSaving(false);
     }
   };
 
@@ -436,6 +471,76 @@ export default function Settings() {
           </button>
         </div>
       )}
+
+      {/* NAT Gateway Settings */}
+      <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>NAT Gateway</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+          Route all Windows VM internet traffic through this server. VMs will use a private
+          VLAN and this server as their default gateway.
+        </p>
+
+        <form onSubmit={handleNatSave}>
+          <div className="form-group">
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={natEnabled}
+                onChange={(e) => setNatEnabled(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Enable NAT Gateway
+            </label>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+              When enabled, new VMs will be provisioned on the private VLAN with this server as the gateway.
+            </p>
+          </div>
+
+          {natEnabled && (
+            <>
+              <div className="form-group">
+                <label>Gateway LAN IP</label>
+                <input
+                  type="text"
+                  value={gatewayIp}
+                  onChange={(e) => setGatewayIp(e.target.value)}
+                  placeholder="e.g. 10.0.0.1"
+                />
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  The private IP of this server on the VLAN. Windows VMs will use this as their default gateway.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>Default Private Network</label>
+                <select
+                  value={defaultNetwork}
+                  onChange={(e) => setDefaultNetwork(e.target.value)}
+                >
+                  <option value="">Select network...</option>
+                  {networks.map((n) => (
+                    <option key={n.name} value={n.name}>{n.name} — {n.subnet}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  The Kamatera private VLAN to use for new VMs. Must be in the same datacenter.
+                </p>
+              </div>
+            </>
+          )}
+
+          {natError && <p className="error-msg">{natError}</p>}
+          {natSaved && (
+            <p style={{ color: "var(--success)", fontSize: 13, marginBottom: 8 }}>
+              NAT gateway settings saved.
+            </p>
+          )}
+
+          <button type="submit" className="btn-primary" disabled={natSaving}>
+            {natSaving ? "Saving..." : "Save NAT Settings"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

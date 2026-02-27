@@ -26,6 +26,26 @@ sudo ./scripts/install.sh
 5. **Desktops** — Create Windows VMs and assign to users
 6. Users download the KamVDI Agent and connect
 
+## NAT Gateway
+
+KamVDI can act as a NAT gateway, routing all Windows VM internet traffic through the proxy server. VMs are placed on a private VLAN with no public IP — the proxy handles all outbound NAT.
+
+```
+[Internet / WAN]
+       |
+  [KamVDI Proxy] ← public IP + private LAN IP
+   iptables NAT    (IP forwarding + masquerade)
+       |
+  [Private VLAN]
+       |
+  [Win VM 1] [Win VM 2] [Win VM 3] ...
+  (GW = proxy LAN IP, no public IP)
+```
+
+The installer prompts to enable NAT gateway. You can also configure it in **Settings → NAT Gateway** after install. No traffic limits are applied — all outbound traffic is NATed without restrictions.
+
+To set up manually: `sudo ./scripts/setup-nat-gateway.sh [LAN_IFACE] [WAN_IFACE]`
+
 ## Architecture
 
 ```

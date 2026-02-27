@@ -44,7 +44,7 @@ class CreateDesktopRequest(BaseModel):
     ram: int = 4096
     disk_size: int = 50
     password: str = "KamVDI2026Desk!"
-    network_name: str = "wan"
+    network_name: str | None = None  # None = use tenant default (private VLAN if NAT enabled)
 
 
 class UpdateDesktopRequest(BaseModel):
@@ -54,6 +54,9 @@ class UpdateDesktopRequest(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     suspend_threshold_minutes: int | None = None
     max_session_hours: int | None = None
+    nat_gateway_enabled: bool | None = None
+    gateway_lan_ip: str | None = None
+    default_network_name: str | None = None
 
 
 # ── Helpers ──
@@ -366,6 +369,14 @@ async def create_desktop(
     # Get the traffic package ID for this datacenter
     traffic_id = await cloudwm.get_traffic_id(datacenter)
 
+    # Resolve network: use request value, tenant default, or "wan" fallback
+    network_name = req.network_name
+    if not network_name:
+        if tenant.nat_gateway_enabled and tenant.default_network_name:
+            network_name = tenant.default_network_name
+        else:
+            network_name = "wan"
+
     # Build server params
     server_params = {
         "name": vm_name,
@@ -375,12 +386,16 @@ async def create_desktop(
         "disk_size_0": req.disk_size,
         "cpu": req.cpu,
         "ram": req.ram,
-        "network_name_0": req.network_name,
+        "network_name_0": network_name,
         "network_ip_0": "auto",
         "billing": "hourly",
         "traffic": traffic_id,
         "power": True,
     }
+
+    # If NAT gateway enabled, add gateway IP for the VM
+    if tenant.nat_gateway_enabled and tenant.gateway_lan_ip and network_name != "wan":
+        server_params["network_gateway_0"] = tenant.gateway_lan_ip
 
     try:
         create_result = await cloudwm.create_server(server_params)
@@ -666,11 +681,20 @@ async def update_settings(
         tenant.suspend_threshold_minutes = req.suspend_threshold_minutes
     if req.max_session_hours is not None:
         tenant.max_session_hours = req.max_session_hours
+    if req.nat_gateway_enabled is not None:
+        tenant.nat_gateway_enabled = req.nat_gateway_enabled
+    if req.gateway_lan_ip is not None:
+        tenant.gateway_lan_ip = req.gateway_lan_ip
+    if req.default_network_name is not None:
+        tenant.default_network_name = req.default_network_name
 
     await db.commit()
     return {
         "suspend_threshold_minutes": tenant.suspend_threshold_minutes,
         "max_session_hours": tenant.max_session_hours,
+        "nat_gateway_enabled": tenant.nat_gateway_enabled,
+        "gateway_lan_ip": tenant.gateway_lan_ip,
+        "default_network_name": tenant.default_network_name,
     }
 
 
@@ -693,6 +717,9 @@ async def get_settings_endpoint(
         "system_server_name": tenant.system_server_name,
         "locked_datacenter": tenant.locked_datacenter,
         "last_sync_at": tenant.last_sync_at.isoformat() if tenant.last_sync_at else None,
+        "nat_gateway_enabled": tenant.nat_gateway_enabled,
+        "gateway_lan_ip": tenant.gateway_lan_ip,
+        "default_network_name": tenant.default_network_name,
     }
 
 

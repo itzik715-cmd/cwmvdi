@@ -71,6 +71,9 @@ export interface TenantSettings {
   system_server_name: string | null;
   locked_datacenter: string | null;
   last_sync_at: string | null;
+  nat_gateway_enabled: boolean;
+  gateway_lan_ip: string | null;
+  default_network_name: string | null;
 }
 
 export interface LoginResponse {

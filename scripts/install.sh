@@ -34,6 +34,26 @@ fi
 
 # ── Configuration ──────────────────────────────────────────
 echo ""
+echo "─── Network Gateway Configuration ───────────"
+
+read -p "Enable NAT gateway for private VLANs? [Y/n]: " ENABLE_NAT
+ENABLE_NAT=${ENABLE_NAT:-Y}
+
+if [[ "$ENABLE_NAT" =~ ^[Yy] ]]; then
+  # Detect interfaces
+  WAN_IFACE=$(ip route show default | awk '{print $5}' | head -1)
+  LAN_IFACE=$(ip -o link show | awk -F': ' '{print $2}' \
+      | grep -v -E "^(lo|docker|veth|br-|${WAN_IFACE})$" | head -1)
+  LAN_IFACE=${LAN_IFACE:-$WAN_IFACE}
+
+  echo "Detected WAN: ${WAN_IFACE}, LAN: ${LAN_IFACE}"
+  read -p "WAN interface [${WAN_IFACE}]: " INPUT_WAN
+  WAN_IFACE=${INPUT_WAN:-$WAN_IFACE}
+  read -p "LAN interface [${LAN_IFACE}]: " INPUT_LAN
+  LAN_IFACE=${INPUT_LAN:-$LAN_IFACE}
+fi
+
+echo ""
 echo "─── Portal Configuration ───────────────────"
 
 SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null \
@@ -80,6 +100,7 @@ CLOUDWM_API_URL=
 CLOUDWM_CLIENT_ID=
 CLOUDWM_SECRET_ENCRYPTED=
 BOUNDARY_ADDR=http://boundary:9200
+NAT_GATEWAY_ENABLED=${ENABLE_NAT:-N}
 EOF
 chmod 600 .env
 
@@ -136,6 +157,12 @@ docker compose up -d --build
 
 log "Waiting for services..."
 sleep 20
+
+# ── NAT Gateway ───────────────────────────────────────────
+if [[ "${ENABLE_NAT:-N}" =~ ^[Yy] ]]; then
+  log "Configuring NAT gateway..."
+  bash "$(dirname "$0")/setup-nat-gateway.sh" "${LAN_IFACE:-}" "${WAN_IFACE:-}"
+fi
 
 # ── DB Init ────────────────────────────────────────────────
 log "Initializing database..."
@@ -198,5 +225,13 @@ echo "║   Change password on first login                     ║"
 echo "║                                                      ║"
 echo "║   Next: Login > Settings > Add CloudWM API keys      ║"
 echo "║                                                      ║"
+if [[ "${ENABLE_NAT:-N}" =~ ^[Yy] ]]; then
+  GW_IP=$(ip -4 addr show "${LAN_IFACE:-}" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+  GW_IP=${GW_IP:-$SERVER_IP}
+  echo "║   NAT Gateway: ENABLED                               ║"
+  echo "║   Gateway IP:  ${GW_IP}$(printf '%*s' $((37 - ${#GW_IP})) '')║"
+  echo "║   Set Windows VM gateway to this IP                  ║"
+  echo "║                                                      ║"
+fi
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""

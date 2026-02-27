@@ -22,7 +22,7 @@ export default function Desktops() {
   const [ram, setRam] = useState(4096);
   const [diskSize, setDiskSize] = useState(50);
   const [password, setPassword] = useState("");
-  const [networkName, setNetworkName] = useState("wan");
+  const [networkName, setNetworkName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -56,7 +56,12 @@ export default function Desktops() {
     setDisplayName("");
     setImageId("");
     setPassword("");
-    setNetworkName("wan");
+    // Default to tenant's default network if NAT is enabled, otherwise "wan"
+    if (settings?.nat_gateway_enabled && settings?.default_network_name) {
+      setNetworkName(settings.default_network_name);
+    } else {
+      setNetworkName("wan");
+    }
 
     setLoadingOptions(true);
     try {
@@ -92,7 +97,7 @@ export default function Desktops() {
         ram,
         disk_size: diskSize,
         password,
-        network_name: networkName,
+        network_name: networkName || undefined,
       });
       setShowModal(false);
       fetchDesktops();
@@ -333,11 +338,19 @@ export default function Desktops() {
                   onChange={(e) => setNetworkName(e.target.value)}
                   disabled={loadingOptions}
                 >
+                  {settings?.nat_gateway_enabled && settings?.default_network_name ? (
+                    <option value="">Private VLAN (NAT Gateway)</option>
+                  ) : null}
                   <option value="wan">Public (WAN)</option>
                   {networks.map((n) => (
                     <option key={n.name} value={n.name}>{n.name} — {n.subnet}</option>
                   ))}
                 </select>
+                {settings?.nat_gateway_enabled && (
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    NAT Gateway is enabled. VMs on private VLAN will route internet through gateway ({settings.gateway_lan_ip}).
+                  </p>
+                )}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
