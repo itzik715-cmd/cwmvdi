@@ -140,8 +140,8 @@ async def connect_desktop(
     if not desktop:
         raise HTTPException(status_code=404, detail="Desktop not found")
 
-    if not desktop.boundary_target_id:
-        raise HTTPException(status_code=400, detail="Desktop not configured in Boundary")
+    if not desktop.vm_private_ip:
+        raise HTTPException(status_code=400, detail="Desktop has no IP address. VM may still be provisioning.")
 
     tenant = await _get_tenant(db, user.tenant_id)
     cloudwm = _get_cloudwm(tenant)
@@ -160,24 +160,19 @@ async def connect_desktop(
     desktop.current_state = "on"
     desktop.last_state_check = datetime.utcnow()
 
-    # 2. Authorize Boundary session
-    boundary = await _get_boundary()
-    auth_token = await boundary.authorize_session(desktop.boundary_target_id)
-
-    # 3. Create session record
+    # 2. Create session record
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
-        boundary_auth_token=auth_token,
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
 
-    # 4. Return URI for agent
+    # 3. Return URI for agent — direct RDP to VM IP
     kamvdi_uri = (
         f"kamvdi://connect"
-        f"?token={auth_token}"
+        f"?host={desktop.vm_private_ip}"
         f"&session={session.id}"
         f"&name={desktop.display_name}"
         f"&portal={settings.portal_url}"

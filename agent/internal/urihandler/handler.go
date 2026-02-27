@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/boundary"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/heartbeat"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/notify"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/rdp"
@@ -12,13 +11,13 @@ import (
 
 // ConnectParams holds the parsed kamvdi:// URI parameters.
 type ConnectParams struct {
-	Token       string
+	Host        string
 	SessionID   string
 	DesktopName string
 	PortalURL   string
 }
 
-// ParseKamVDIUri parses a kamvdi://connect?token=xxx&session=yyy&name=zzz URI.
+// ParseKamVDIUri parses a kamvdi://connect?host=x.x.x.x&session=yyy&name=zzz URI.
 func ParseKamVDIUri(rawURI string) (*ConnectParams, error) {
 	u, err := url.Parse(rawURI)
 	if err != nil {
@@ -26,13 +25,13 @@ func ParseKamVDIUri(rawURI string) (*ConnectParams, error) {
 	}
 
 	params := u.Query()
-	token := params.Get("token")
-	if token == "" {
-		return nil, fmt.Errorf("missing required parameter: token")
+	host := params.Get("host")
+	if host == "" {
+		return nil, fmt.Errorf("missing required parameter: host")
 	}
 
 	return &ConnectParams{
-		Token:       token,
+		Host:        host,
 		SessionID:   params.Get("session"),
 		DesktopName: params.Get("name"),
 		PortalURL:   params.Get("portal"),
@@ -49,36 +48,16 @@ func HandleConnect(params *ConnectParams) error {
 	// 1. Notify user
 	notify.Show("KamVDI", fmt.Sprintf("Connecting to %s...", name))
 
-	// 2. Start Boundary tunnel
-	localPort, cmd, err := boundary.ConnectRDP(params.Token)
-	if err != nil {
-		notify.Show("KamVDI Error", fmt.Sprintf("Failed to establish tunnel: %v", err))
-		return fmt.Errorf("boundary connect failed: %w", err)
-	}
-
-	// 3. Launch RDP client
-	if err := rdp.Launch(localPort); err != nil {
-		notify.Show("KamVDI Error", fmt.Sprintf("Failed to launch RDP client: %v", err))
-		// Kill boundary process if RDP fails
-		if cmd != nil && cmd.Process != nil {
-			cmd.Process.Kill()
-		}
+	// 2. Launch RDP client directly to the VM
+	if err := rdp.LaunchDirect(params.Host, 3389); err != nil {
+		notify.Show("KamVDI Error", fmt.Sprintf("Failed to launch RDP: %v", err))
 		return fmt.Errorf("RDP launch failed: %w", err)
 	}
 
 	notify.Show("KamVDI", fmt.Sprintf("Connected to %s", name))
 
-	// 4. Start heartbeat in foreground (blocks until boundary exits)
+	// 3. Start heartbeat (blocks until stopped)
 	done := make(chan struct{})
-
-	// Monitor boundary process — when it exits, stop heartbeat
-	go func() {
-		if cmd != nil {
-			cmd.Wait()
-		}
-		close(done)
-	}()
-
 	heartbeat.Start(params.SessionID, params.PortalURL, done)
 
 	notify.Show("KamVDI", fmt.Sprintf("Disconnected from %s", name))
