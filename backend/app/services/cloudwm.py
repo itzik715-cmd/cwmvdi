@@ -16,9 +16,26 @@ class CloudWMClient:
         self.secret = secret
         self._token: str | None = None
         self._token_expires: float = 0
+        self._server_options: dict | None = None
+        self._server_options_expires: float = 0
 
     async def _get_client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=30.0, verify=True)
+        return httpx.AsyncClient(timeout=120.0, verify=True)
+
+    async def _get_server_options(self) -> dict:
+        """GET /server — cached for 5 minutes (returns all options: datacenters, images, networks)."""
+        if self._server_options and time.time() < self._server_options_expires:
+            return self._server_options
+
+        async with await self._get_client() as client:
+            resp = await client.get(
+                f"{self.base_url}/server",
+                headers=await self._auth_headers(),
+            )
+            resp.raise_for_status()
+            self._server_options = resp.json()
+            self._server_options_expires = time.time() + 300
+            return self._server_options
 
     async def authenticate(self) -> str:
         """POST /authenticate — returns a session token."""
@@ -170,14 +187,8 @@ class CloudWMClient:
             return data
 
     async def list_images(self, datacenter: str = "IL-PT") -> list[dict]:
-        """Get available OS images, filtered to Windows images."""
-        async with await self._get_client() as client:
-            resp = await client.get(
-                f"{self.base_url}/server",
-                headers=await self._auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        """Get available OS images for a datacenter."""
+        data = await self._get_server_options()
 
         images = []
         disk_images = data.get("diskImages", data.get("disk_images", []))
@@ -202,13 +213,7 @@ class CloudWMClient:
 
     async def list_networks(self, datacenter: str = "IL-PT") -> list[dict]:
         """List available VLAN/private networks."""
-        async with await self._get_client() as client:
-            resp = await client.get(
-                f"{self.base_url}/server",
-                headers=await self._auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._get_server_options()
 
         networks = []
         raw_networks = data.get("networks", {})
@@ -241,14 +246,8 @@ class CloudWMClient:
             return {"status": "ok", "data": data}
 
     async def get_datacenters(self) -> list[dict]:
-        """GET server options — list available datacenters."""
-        async with await self._get_client() as client:
-            resp = await client.get(
-                f"{self.base_url}/server",
-                headers=await self._auth_headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        """List available datacenters."""
+        data = await self._get_server_options()
 
         dcs = data.get("datacenters", {})
         return [{"id": k, "name": v} for k, v in dcs.items()]
