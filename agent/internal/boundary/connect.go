@@ -18,7 +18,9 @@ type connectOutput struct {
 	Expiration string `json:"expiration"`
 }
 
-// ConnectRDP starts `boundary connect rdp` and returns the local port.
+// ConnectRDP starts `boundary connect` (raw TCP proxy) and returns the local port.
+// We use base `connect` instead of `connect rdp` because the rdp subcommand
+// doesn't support -listen-port and tries to launch its own RDP client.
 // The returned *exec.Cmd must be monitored; when it exits the tunnel is closed.
 // portalURL is used to download boundary.exe on first use.
 func ConnectRDP(authzToken, workerAddr, portalURL string) (int, *exec.Cmd, error) {
@@ -28,10 +30,11 @@ func ConnectRDP(authzToken, workerAddr, portalURL string) (int, *exec.Cmd, error
 	}
 
 	args := []string{
-		"connect", "rdp",
+		"connect",
 		"-authz-token", authzToken,
 		"-listen-port", "0",
 		"-format", "json",
+		"-skip-cache-daemon",
 	}
 	if workerAddr != "" {
 		args = append(args, "-addr", workerAddr)
