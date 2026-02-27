@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/config"
+	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/health"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/registration"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/tray"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/urihandler"
@@ -61,6 +62,9 @@ func main() {
 	if err := registration.RegisterURIScheme(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: URI scheme registration failed: %v\n", err)
 	}
+
+	// Start local health server so the browser can detect the agent
+	health.Start()
 
 	// Default: run as system tray application
 	tray.Run()

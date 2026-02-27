@@ -1,26 +1,35 @@
 import { useState, useEffect } from "react";
 
+const AGENT_HEALTH_URL = "http://127.0.0.1:17715/health";
+
 export default function AgentDownload() {
   const [detected, setDetected] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Try to detect if the agent is installed by attempting a ping URI.
-    // If no handler is registered, the browser ignores it silently (no reliable detection).
-    // We show the banner by default and let the user dismiss it.
-    const timer = setTimeout(() => setDetected(false), 2000);
+    let cancelled = false;
 
-    // Try sending a ping — if the agent handles it, we'll know
-    try {
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = "kamvdi://ping";
-      document.body.appendChild(iframe);
-      setTimeout(() => document.body.removeChild(iframe), 1000);
-    } catch {
-      // Ignore
-    }
+    const checkAgent = async () => {
+      try {
+        const resp = await fetch(AGENT_HEALTH_URL, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!cancelled && resp.ok) {
+          setDetected(true);
+        }
+      } catch {
+        if (!cancelled) setDetected(false);
+      }
+    };
 
-    return () => clearTimeout(timer);
+    checkAgent();
+
+    // Re-check every 10 seconds in case the agent starts later
+    const interval = setInterval(checkAgent, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   if (detected !== false) return null;
