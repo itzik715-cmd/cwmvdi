@@ -171,8 +171,27 @@ export default function Desktops() {
                 </td>
                 <td><StatusBadge state={d.current_state} /></td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>{d.cloudwm_server_id}</td>
-                <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  {d.boundary_target_id ? "Configured" : "Pending"}
+                <td style={{ fontSize: 13 }}>
+                  {d.boundary_target_id ? (
+                    <span style={{ color: "var(--success)" }}>Configured</span>
+                  ) : d.current_state !== "provisioning" ? (
+                    <button
+                      className="btn-primary"
+                      style={{ padding: "2px 10px", fontSize: 11 }}
+                      onClick={async () => {
+                        try {
+                          await adminApi.setupBoundary(d.id);
+                          fetchDesktops();
+                        } catch (err: any) {
+                          alert(err.response?.data?.detail || "Failed to setup Boundary");
+                        }
+                      }}
+                    >
+                      Setup
+                    </button>
+                  ) : (
+                    <span style={{ color: "var(--text-muted)" }}>Pending</span>
+                  )}
                 </td>
                 <td>
                   {d.is_active && (

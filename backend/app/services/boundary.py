@@ -45,6 +45,11 @@ class BoundaryClient:
             raise RuntimeError("Not authenticated — call authenticate() first")
         return {"Authorization": f"Bearer {self._token}"}
 
+    @staticmethod
+    def _extract(data: dict) -> dict:
+        """Extract the resource object — handles both {"item": {...}} and direct {...} formats."""
+        return data.get("item", data)
+
     # ── Scope Management ──
 
     async def create_org(self, name: str, description: str = "") -> dict:
@@ -61,7 +66,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     async def create_project(self, org_id: str, name: str, description: str = "") -> dict:
         """Create a project scope within an org."""
@@ -77,7 +82,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     # ── Host Management ──
 
@@ -94,7 +99,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     async def create_host_set(self, host_catalog_id: str, name: str) -> dict:
         """Create a host set in a host catalog."""
@@ -109,7 +114,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     async def create_host(
         self, host_catalog_id: str, name: str, ip: str
@@ -127,7 +132,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            host = resp.json()["item"]
+            host = self._extract(resp.json())
             return host["id"]
 
     async def add_host_to_set(self, host_set_id: str, host_id: str, version: int) -> dict:
@@ -142,7 +147,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     # ── Target Management ──
 
@@ -164,7 +169,7 @@ class BoundaryClient:
                 },
             )
             resp.raise_for_status()
-            target = resp.json()["item"]
+            target = self._extract(resp.json())
             target_id = target["id"]
 
             # Add host sources to target
@@ -190,7 +195,7 @@ class BoundaryClient:
                 json={},
             )
             resp.raise_for_status()
-            data = resp.json()["item"]
+            data = self._extract(resp.json())
             return data["authorization_token"]
 
     async def cancel_session(self, session_id: str) -> bool:
@@ -216,7 +221,7 @@ class BoundaryClient:
                 headers=self._auth_headers(),
             )
             resp.raise_for_status()
-            return resp.json()["item"]
+            return self._extract(resp.json())
 
     # ── Tenant Setup ──
 
@@ -275,7 +280,7 @@ class BoundaryClient:
                 headers=self._auth_headers(),
             )
             resp.raise_for_status()
-            hs_version = resp.json()["item"]["version"]
+            hs_version = self._extract(resp.json())["version"]
 
         await self.add_host_to_set(host_set_id, host_id, hs_version)
 

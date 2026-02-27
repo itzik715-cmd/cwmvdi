@@ -463,6 +463,73 @@ async def update_desktop(
     return {"message": "Desktop updated"}
 
 
+@router.post("/desktops/{desktop_id}/setup-boundary")
+async def setup_desktop_boundary(
+    desktop_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually set up Boundary target for an existing desktop."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+
+    if not tenant.boundary_project_id:
+        raise HTTPException(status_code=400, detail="Boundary project not configured for tenant. Re-save CloudWM settings first.")
+
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    if desktop.boundary_target_id:
+        return {"message": "Boundary target already configured", "target_id": desktop.boundary_target_id}
+
+    if not desktop.vm_private_ip:
+        # Try to fetch IP from CloudWM
+        if desktop.cloudwm_server_id and tenant.cloudwm_client_id:
+            try:
+                cloudwm = CloudWMClient(
+                    api_url=tenant.cloudwm_api_url,
+                    client_id=tenant.cloudwm_client_id,
+                    secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+                )
+                server_data = await cloudwm.get_server(desktop.cloudwm_server_id)
+                networks = server_data.get("networks", [])
+                if isinstance(networks, list):
+                    for net in networks:
+                        if isinstance(net, dict):
+                            ips = net.get("ips", [])
+                            if isinstance(ips, list) and ips:
+                                desktop.vm_private_ip = ips[0]
+                                break
+            except Exception:
+                pass
+
+    if not desktop.vm_private_ip:
+        raise HTTPException(status_code=400, detail="Desktop has no IP address. VM may still be provisioning.")
+
+    try:
+        boundary = await _get_boundary()
+        bt = await boundary.setup_desktop_target(
+            project_id=tenant.boundary_project_id,
+            host_catalog_id=tenant.boundary_host_catalog_id,
+            host_set_id=tenant.boundary_host_set_id,
+            desktop_name=desktop.display_name.lower().replace(" ", "-"),
+            vm_ip=desktop.vm_private_ip,
+        )
+        desktop.boundary_target_id = bt["target_id"]
+        desktop.boundary_host_id = bt["host_id"]
+        await db.commit()
+        return {"message": "Boundary target created", "target_id": bt["target_id"]}
+    except Exception as e:
+        logger.exception("Failed to setup Boundary for desktop %s", desktop_id)
+        raise HTTPException(status_code=500, detail=f"Boundary setup failed: {str(e)}")
+
+
 @router.delete("/desktops/{desktop_id}")
 async def delete_desktop(
     desktop_id: str,
