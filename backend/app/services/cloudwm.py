@@ -159,8 +159,8 @@ class CloudWMClient:
             await asyncio.sleep(5)
         return False
 
-    async def wait_for_command(self, command_id: int, timeout: int = 300) -> bool:
-        """Poll a queue command until complete."""
+    async def wait_for_command(self, command_id: int, timeout: int = 300) -> dict | None:
+        """Poll a queue command until complete. Returns the queue data on success, None on failure/timeout."""
         start = time.time()
         while time.time() - start < timeout:
             async with await self._get_client() as client:
@@ -171,13 +171,28 @@ class CloudWMClient:
                 resp.raise_for_status()
                 data = resp.json()
                 status = data.get("status", "")
+                logger.info("Command %d status: %s", command_id, status)
                 if status == "complete":
-                    return True
+                    return data
                 if status == "error":
                     logger.error("Command %d failed: %s", command_id, data.get("log", ""))
-                    return False
+                    return None
             await asyncio.sleep(10)
-        return False
+        return None
+
+    async def get_traffic_id(self, datacenter: str) -> int:
+        """Get the default traffic package ID (t5000) for a datacenter."""
+        data = await self._get_server_options()
+        traffic = data.get("traffic", {})
+        dc_traffic = traffic.get(datacenter, [])
+        if isinstance(dc_traffic, list):
+            # Prefer t5000 (5000GB), fallback to first available
+            for t in dc_traffic:
+                if isinstance(t, dict) and t.get("name") == "t5000":
+                    return t["id"]
+            if dc_traffic and isinstance(dc_traffic[0], dict):
+                return dc_traffic[0]["id"]
+        return 9  # fallback
 
     async def create_server(self, params: dict) -> dict:
         """
@@ -185,13 +200,17 @@ class CloudWMClient:
         params should include: name, datacenter, disk_src_0, disk_size_0, cpu, ram,
         network_name_0, billing, traffic, password
         """
+        logger.info("Creating server with params: %s", {k: v for k, v in params.items() if k != "password"})
         async with await self._get_client() as client:
             resp = await client.post(
                 f"{self.base_url}/server",
                 headers=await self._auth_headers(),
                 json=params,
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                error_body = resp.text
+                logger.error("Server creation failed (%d): %s", resp.status_code, error_body)
+                resp.raise_for_status()
             data = resp.json()
             # Returns a list with command ID(s)
             if isinstance(data, list) and data:
@@ -251,19 +270,21 @@ class CloudWMClient:
                         })
         return networks
 
-    async def create_network(self, name: str, subnet: str) -> dict:
-        """Create a new VLAN network."""
+    async def create_network(self, name: str, datacenter: str = "IL") -> dict:
+        """Create a new VLAN network via POST /server/network."""
         async with await self._get_client() as client:
             resp = await client.post(
-                f"{self.base_url}/network",
+                f"{self.base_url}/server/network",
                 headers=await self._auth_headers(),
                 json={
                     "name": name,
-                    "subnet": subnet,
-                    "datacenter": "IL-PT",
+                    "datacenter": datacenter,
                 },
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                error_body = resp.text
+                logger.error("Network creation failed (%d): %s", resp.status_code, error_body)
+                resp.raise_for_status()
             data = resp.json()
             return {"status": "ok", "data": data}
 

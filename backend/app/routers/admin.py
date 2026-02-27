@@ -208,48 +208,82 @@ async def create_desktop(
     )
 
     vm_name = f"kamvdi-{tenant.slug}-{req.display_name.lower().replace(' ', '-')}"
-    create_result = await cloudwm.create_server(
-        {
-            "name": vm_name,
-            "password": req.password,
-            "datacenter": req.datacenter,
-            "disk_src_0": req.image_id,
-            "disk_size_0": req.disk_size,
-            "cpu": req.cpu,
-            "ram": req.ram,
-            "network_name_0": req.network_name,
-            "billing": "hourly",
-            "traffic": "t5000",
-            "power": True,
-        }
-    )
+
+    # Get the traffic package ID for this datacenter
+    traffic_id = await cloudwm.get_traffic_id(req.datacenter)
+
+    try:
+        create_result = await cloudwm.create_server(
+            {
+                "name": vm_name,
+                "password": req.password,
+                "datacenter": req.datacenter,
+                "disk_src_0": req.image_id,
+                "disk_size_0": req.disk_size,
+                "cpu": req.cpu,
+                "ram": req.ram,
+                "network_name_0": req.network_name,
+                "billing": "hourly",
+                "traffic": traffic_id,
+                "power": True,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CloudWM API error: {str(e)}")
 
     command_id = create_result.get("command_id")
     if not command_id:
-        raise HTTPException(status_code=500, detail="Failed to create VM")
+        raise HTTPException(status_code=500, detail="Failed to create VM — no command ID returned")
 
-    # Wait for VM creation
-    success = await cloudwm.wait_for_command(command_id, timeout=300)
-    if not success:
-        raise HTTPException(status_code=500, detail="VM creation timed out or failed")
+    # Wait for VM creation (up to 5 minutes)
+    queue_result = await cloudwm.wait_for_command(command_id, timeout=300)
+    if not queue_result:
+        raise HTTPException(status_code=500, detail="VM creation timed out or failed. Check CloudWM console.")
 
-    # Get the server details to find its ID and IP
-    # The server ID is in the queue result; we need to find it
-    # For now, use the command_id as a reference
-    # TODO: extract server_id from CloudWM queue log
+    # Extract server ID from queue log
+    server_id = ""
+    log_text = queue_result.get("log", "")
+    if log_text:
+        # The log usually contains the server ID/name
+        for line in log_text.split("\n"):
+            if "server" in line.lower() and ("id" in line.lower() or "created" in line.lower()):
+                server_id = line.strip()
+                break
+    if not server_id:
+        # Use command_id as fallback reference
+        server_id = str(command_id)
 
-    # 2. Register in Boundary
+    # Try to get the VM's IP address
+    vm_ip = None
+    try:
+        server_data = await cloudwm.get_server(server_id)
+        networks = server_data.get("networks", [])
+        if isinstance(networks, list) and networks:
+            for net in networks:
+                if isinstance(net, dict):
+                    ip = net.get("ip", net.get("ips", ""))
+                    if ip:
+                        vm_ip = ip if isinstance(ip, str) else str(ip)
+                        break
+    except Exception:
+        pass  # Server might not be queryable by command_id
+
+    # 2. Register in Boundary (if configured)
     if tenant.boundary_project_id and tenant.boundary_host_catalog_id:
-        boundary = await _get_boundary()
-        boundary_result = await boundary.setup_desktop_target(
-            project_id=tenant.boundary_project_id,
-            host_catalog_id=tenant.boundary_host_catalog_id,
-            host_set_id=tenant.boundary_host_set_id,
-            desktop_name=vm_name,
-            vm_ip="10.0.0.1",  # TODO: get actual private IP from CloudWM
-        )
-        boundary_target_id = boundary_result["target_id"]
-        boundary_host_id = boundary_result["host_id"]
+        try:
+            boundary = await _get_boundary()
+            boundary_result = await boundary.setup_desktop_target(
+                project_id=tenant.boundary_project_id,
+                host_catalog_id=tenant.boundary_host_catalog_id,
+                host_set_id=tenant.boundary_host_set_id,
+                desktop_name=vm_name,
+                vm_ip=vm_ip or "10.0.0.1",
+            )
+            boundary_target_id = boundary_result["target_id"]
+            boundary_host_id = boundary_result["host_id"]
+        except Exception:
+            boundary_target_id = None
+            boundary_host_id = None
     else:
         boundary_target_id = None
         boundary_host_id = None
@@ -258,7 +292,8 @@ async def create_desktop(
     desktop = DesktopAssignment(
         user_id=user.id,
         tenant_id=tenant.id,
-        cloudwm_server_id=str(command_id),  # TODO: replace with actual server ID
+        cloudwm_server_id=server_id,
+        vm_private_ip=vm_ip,
         boundary_target_id=boundary_target_id,
         boundary_host_id=boundary_host_id,
         display_name=req.display_name,
@@ -543,7 +578,7 @@ async def list_networks(
 
 class CreateNetworkRequest(BaseModel):
     name: str
-    subnet: str
+    datacenter: str = "IL"
 
 
 @router.post("/networks")
@@ -562,5 +597,8 @@ async def create_network(
         client_id=tenant.cloudwm_client_id,
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
-    result = await cloudwm.create_network(req.name, req.subnet)
-    return result
+    try:
+        result = await cloudwm.create_network(req.name, req.datacenter)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create network: {str(e)}")

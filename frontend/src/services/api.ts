@@ -78,7 +78,7 @@ export const adminApi = {
     api.post("/admin/settings/cloudwm/test", data),
 
   getNetworks: (datacenter?: string) => api.get("/admin/networks", { params: { datacenter } }),
-  createNetwork: (data: { name: string; subnet: string }) =>
+  createNetwork: (data: { name: string; datacenter: string }) =>
     api.post("/admin/networks", data),
 };
 

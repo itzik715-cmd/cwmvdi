@@ -13,7 +13,9 @@ export default function Networks() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newSubnet, setNewSubnet] = useState("10.0.0.0/24");
+  const [datacenter, setDatacenter] = useState("");
+  const [datacenters, setDatacenters] = useState<{ id: string; name: string }[]>([]);
+  const [loadingDCs, setLoadingDCs] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,12 +35,29 @@ export default function Networks() {
     fetchNetworks();
   }, []);
 
+  const openCreateModal = async () => {
+    setShowCreate(true);
+    setError(null);
+    setNewName("");
+    setDatacenter("");
+    setLoadingDCs(true);
+    try {
+      const res = await adminApi.getDatacenters();
+      setDatacenters(res.data || []);
+    } catch {
+      setDatacenters([]);
+      setError("Failed to load datacenters");
+    } finally {
+      setLoadingDCs(false);
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
     setError(null);
     try {
-      await adminApi.createNetwork({ name: newName, subnet: newSubnet });
+      await adminApi.createNetwork({ name: newName, datacenter });
       setShowCreate(false);
       setNewName("");
       fetchNetworks();
@@ -53,7 +72,7 @@ export default function Networks() {
     <div>
       <div className="page-header">
         <h1>Private Networks</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
+        <button className="btn-primary" onClick={openCreateModal}>
           New Network
         </button>
       </div>
@@ -114,20 +133,27 @@ export default function Networks() {
             <h2>Create Private Network</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
+                <label>Datacenter</label>
+                <select
+                  value={datacenter}
+                  onChange={(e) => setDatacenter(e.target.value)}
+                  required
+                  disabled={loadingDCs}
+                >
+                  <option value="">
+                    {loadingDCs ? "Loading datacenters..." : "Select datacenter..."}
+                  </option>
+                  {datacenters.map((dc) => (
+                    <option key={dc.id} value={dc.id}>{dc.name} ({dc.id})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
                 <label>Network Name</label>
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. kamvdi-lan"
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Subnet (CIDR)</label>
-                <input
-                  value={newSubnet}
-                  onChange={(e) => setNewSubnet(e.target.value)}
-                  placeholder="10.0.0.0/24"
                   required
                 />
               </div>
