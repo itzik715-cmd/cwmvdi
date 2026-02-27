@@ -17,10 +17,10 @@ func registerWindows() error {
 	}
 	exePath, _ = filepath.Abs(exePath)
 
-	// Create HKEY_CLASSES_ROOT\kamvdi
+	// Use HKCU\Software\Classes instead of HKCR — no admin rights needed
 	key, _, err := registry.CreateKey(
-		registry.CLASSES_ROOT,
-		`kamvdi`,
+		registry.CURRENT_USER,
+		`Software\Classes\kamvdi`,
 		registry.ALL_ACCESS,
 	)
 	if err != nil {
@@ -33,8 +33,8 @@ func registerWindows() error {
 
 	// Create shell\open\command
 	cmdKey, _, err := registry.CreateKey(
-		registry.CLASSES_ROOT,
-		`kamvdi\shell\open\command`,
+		registry.CURRENT_USER,
+		`Software\Classes\kamvdi\shell\open\command`,
 		registry.ALL_ACCESS,
 	)
 	if err != nil {
@@ -42,13 +42,12 @@ func registerWindows() error {
 	}
 	defer cmdKey.Close()
 
-	// Set command: "C:\Program Files\KamVDI\kamvdi-agent.exe" "%1"
 	cmdKey.SetStringValue("", fmt.Sprintf(`"%s" "%%1"`, exePath))
 
 	// DefaultIcon
 	iconKey, _, err := registry.CreateKey(
-		registry.CLASSES_ROOT,
-		`kamvdi\DefaultIcon`,
+		registry.CURRENT_USER,
+		`Software\Classes\kamvdi\DefaultIcon`,
 		registry.ALL_ACCESS,
 	)
 	if err == nil {
@@ -60,13 +59,10 @@ func registerWindows() error {
 }
 
 func unregisterWindows() error {
-	err := registry.DeleteKey(registry.CLASSES_ROOT, `kamvdi\shell\open\command`)
-	if err != nil {
-		// Ignore if key doesn't exist
-	}
-	registry.DeleteKey(registry.CLASSES_ROOT, `kamvdi\shell\open`)
-	registry.DeleteKey(registry.CLASSES_ROOT, `kamvdi\shell`)
-	registry.DeleteKey(registry.CLASSES_ROOT, `kamvdi\DefaultIcon`)
-	registry.DeleteKey(registry.CLASSES_ROOT, `kamvdi`)
+	registry.DeleteKey(registry.CURRENT_USER, `Software\Classes\kamvdi\shell\open\command`)
+	registry.DeleteKey(registry.CURRENT_USER, `Software\Classes\kamvdi\shell\open`)
+	registry.DeleteKey(registry.CURRENT_USER, `Software\Classes\kamvdi\shell`)
+	registry.DeleteKey(registry.CURRENT_USER, `Software\Classes\kamvdi\DefaultIcon`)
+	registry.DeleteKey(registry.CURRENT_USER, `Software\Classes\kamvdi`)
 	return nil
 }

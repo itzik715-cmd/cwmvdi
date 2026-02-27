@@ -57,6 +57,11 @@ func main() {
 		}
 	}
 
+	// Auto-register URI scheme on every startup (idempotent, no admin needed)
+	if err := registration.RegisterURIScheme(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: URI scheme registration failed: %v\n", err)
+	}
+
 	// Default: run as system tray application
 	tray.Run()
 }
