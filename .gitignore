@@ -1,0 +1,12 @@
+.env
+nginx/ssl/
+*.pem
+*.key
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+dist/
+build/
+*.log
+.DS_Store

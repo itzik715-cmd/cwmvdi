@@ -1,0 +1,91 @@
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Connecting from "./pages/Connecting";
+import MFASetup from "./pages/MFASetup";
+import ChangePassword from "./pages/ChangePassword";
+import AdminLayout from "./pages/admin/AdminLayout";
+import AdminUsers from "./pages/admin/Users";
+import AdminDesktops from "./pages/admin/Desktops";
+import AdminSessions from "./pages/admin/Sessions";
+import AdminAuditLog from "./pages/admin/AuditLog";
+import AdminSettings from "./pages/admin/Settings";
+import AdminNetworks from "./pages/admin/Networks";
+import { api } from "./services/api";
+
+function App() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUser = () => {
+    api
+      .get("/auth/me")
+      .then((res) => setUser(res.data))
+      .catch(() => {
+        localStorage.removeItem("token");
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      fetchUser();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 200 }}>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  const handleLogin = (userData: any, token: string) => {
+    localStorage.setItem("token", token);
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    setUser(null);
+  };
+
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Force password change on first login
+  if (user.must_change_password) {
+    return <ChangePassword user={user} onChanged={fetchUser} />;
+  }
+
+  const isAdmin = user.role === "admin" || user.role === "superadmin";
+
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard user={user} onLogout={handleLogout} />} />
+      <Route path="/connecting/:desktopId" element={<Connecting user={user} />} />
+      <Route path="/mfa-setup" element={<MFASetup user={user} />} />
+      {isAdmin && (
+        <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} />}>
+          <Route index element={<Navigate to="desktops" />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="desktops" element={<AdminDesktops />} />
+          <Route path="networks" element={<AdminNetworks />} />
+          <Route path="sessions" element={<AdminSessions />} />
+          <Route path="audit" element={<AdminAuditLog />} />
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
+      )}
+      <Route path="*" element={<Navigate to="/" />} />
+    </Routes>
+  );
+}
+
+export default App;
