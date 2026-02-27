@@ -13,6 +13,7 @@ export default function Desktops() {
   const [images, setImages] = useState<{ id: string; description: string; size_gb: number }[]>([]);
   const [networks, setNetworks] = useState<{ name: string; subnet: string }[]>([]);
   const [loadingImages, setLoadingImages] = useState(false);
+  const [loadingDCs, setLoadingDCs] = useState(false);
 
   // Form state
   const [userId, setUserId] = useState("");
@@ -69,11 +70,15 @@ export default function Desktops() {
     setImages([]);
     setNetworks([]);
 
+    setLoadingDCs(true);
     try {
       const res = await adminApi.getDatacenters();
-      setDatacenters(res.data);
-    } catch {
+      setDatacenters(res.data || []);
+    } catch (err: any) {
       setDatacenters([]);
+      setError(err.response?.data?.detail || "Failed to load datacenters. Check CloudWM API settings.");
+    } finally {
+      setLoadingDCs(false);
     }
   };
 
@@ -199,8 +204,10 @@ export default function Desktops() {
 
               <div className="form-group">
                 <label>Datacenter</label>
-                <select value={datacenter} onChange={(e) => setDatacenter(e.target.value)} required>
-                  <option value="">Select datacenter...</option>
+                <select value={datacenter} onChange={(e) => setDatacenter(e.target.value)} required disabled={loadingDCs}>
+                  <option value="">
+                    {loadingDCs ? "Loading datacenters..." : "Select datacenter..."}
+                  </option>
                   {datacenters.map((dc) => (
                     <option key={dc.id} value={dc.id}>{dc.name} ({dc.id})</option>
                   ))}
