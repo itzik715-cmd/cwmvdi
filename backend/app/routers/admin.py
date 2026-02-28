@@ -223,7 +223,14 @@ async def list_all_desktops(
                 if d.current_state == "provisioning" and not power:
                     continue  # don't override provisioning state if no match yet
                 if power:
-                    new_state = "on" if power == "on" else "off" if power == "off" else d.current_state
+                    if power == "on":
+                        new_state = "on"
+                    elif power == "off":
+                        new_state = "off"
+                    elif power in ("suspended", "paused"):
+                        new_state = "suspended"
+                    else:
+                        new_state = d.current_state
                     if new_state != d.current_state or d.current_state in ("unknown", "provisioning"):
                         d.current_state = new_state
                         d.last_state_check = datetime.utcnow()
@@ -767,6 +774,22 @@ async def desktop_power_action(
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
 
+    # Refresh actual state from CloudWM before acting
+    actual_state = await cloudwm.get_server_state(desktop.cloudwm_server_id)
+
+    # Check if the action is redundant (VM already in desired state)
+    no_op_map = {
+        "suspend": "suspended",
+        "resume": "on",
+        "power_on": "on",
+        "power_off": "off",
+    }
+    if req.action in no_op_map and actual_state == no_op_map[req.action]:
+        desktop.current_state = actual_state
+        desktop.last_state_check = datetime.utcnow()
+        await db.commit()
+        return {"message": f"VM is already {actual_state}", "state": desktop.current_state}
+
     try:
         if req.action == "suspend":
             await cloudwm.suspend(desktop.cloudwm_server_id)
@@ -792,6 +815,12 @@ async def desktop_power_action(
                 resp.raise_for_status()
             desktop.current_state = "on"
     except Exception as e:
+        # On failure, sync state from CloudWM so UI reflects reality
+        fallback_state = await cloudwm.get_server_state(desktop.cloudwm_server_id)
+        if fallback_state != "unknown":
+            desktop.current_state = fallback_state
+            desktop.last_state_check = datetime.utcnow()
+            await db.commit()
         logger.exception("Power action %s failed for %s", req.action, desktop.cloudwm_server_id)
         raise HTTPException(status_code=502, detail=f"Power action failed: {str(e)}")
 
