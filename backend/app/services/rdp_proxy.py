@@ -36,6 +36,11 @@ class RDPProxyManager:
         except ProcessLookupError:
             logger.debug("RDP proxy PID %d already gone", pid)
 
+    @staticmethod
+    def _sanitize_rdp_value(value: str) -> str:
+        """Strip characters that could inject RDP file settings."""
+        return value.replace("\r", "").replace("\n", "").replace(":", "")
+
     def generate_rdp_file(
         self,
         hostname: str,
@@ -43,9 +48,11 @@ class RDPProxyManager:
         username: str = "",
         display_name: str = "CwmVDI Desktop",
     ) -> str:
-        """Generate .rdp file content."""
+        """Generate .rdp file content with sanitized values."""
+        safe_hostname = self._sanitize_rdp_value(hostname)
+        safe_username = self._sanitize_rdp_value(username)
         lines = [
-            f"full address:s:{hostname}:{port}",
+            f"full address:s:{safe_hostname}:{port}",
             "prompt for credentials:i:1",
             "screen mode id:i:2",
             "desktopwidth:i:1920",
@@ -60,6 +67,6 @@ class RDPProxyManager:
             "bandwidthautodetect:i:1",
             "autoreconnection enabled:i:1",
         ]
-        if username:
-            lines.append(f"username:s:{username}")
+        if safe_username:
+            lines.append(f"username:s:{safe_username}")
         return "\r\n".join(lines) + "\r\n"

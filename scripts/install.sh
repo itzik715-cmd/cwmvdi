@@ -79,16 +79,18 @@ SECRET_KEY=$(openssl rand -hex 32)
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 PG_PASS=$(openssl rand -hex 16)
 REDIS_PASS=$(openssl rand -hex 16)
-ADMIN_PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 12)
+ADMIN_PASS=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9!@#$^&*' | head -c 16)
 GUAC_SECRET=$(openssl rand -hex 16)
 
 # ── .env ───────────────────────────────────────────────────
 cat > .env << EOF
+ENVIRONMENT=production
 PORTAL_DOMAIN=${PORTAL_DOMAIN}
 PORTAL_URL=https://${PORTAL_DOMAIN}
 SECRET_KEY=${SECRET_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASS}
 ADMIN_TEMP_PASSWORD=${ADMIN_PASS}
 POSTGRES_DB=cwmvdi
 POSTGRES_USER=cwmvdi

@@ -1,8 +1,25 @@
 import io
+import re
 import base64
+import time
+import logging
 
 import pyotp
 import qrcode
+
+logger = logging.getLogger(__name__)
+
+# In-memory TOTP replay prevention (used codes within window)
+_used_codes: dict[str, float] = {}
+_REPLAY_WINDOW = 90  # seconds — matches valid_window=1 (±30s)
+
+
+def _cleanup_used_codes() -> None:
+    """Remove expired entries from the used-codes cache."""
+    now = time.time()
+    expired = [k for k, ts in _used_codes.items() if now - ts > _REPLAY_WINDOW]
+    for k in expired:
+        del _used_codes[k]
 
 
 def generate_mfa_secret() -> str:
@@ -26,6 +43,24 @@ def generate_qr_code_base64(uri: str) -> str:
 
 
 def verify_totp(secret: str, code: str) -> bool:
-    """Verify a TOTP code. Allows 1 period of drift."""
+    """Verify a TOTP code with replay prevention.
+
+    Validates code format (6 digits), checks it hasn't been used recently,
+    and allows 1 period of drift (±30s).
+    """
+    # Validate code format
+    if not code or not re.match(r"^\d{6}$", code):
+        return False
+
+    # Check replay prevention
+    _cleanup_used_codes()
+    replay_key = f"{secret}:{code}"
+    if replay_key in _used_codes:
+        logger.warning("TOTP code replay attempt detected")
+        return False
+
     totp = pyotp.TOTP(secret)
-    return totp.verify(code, valid_window=1)
+    if totp.verify(code, valid_window=1):
+        _used_codes[replay_key] = time.time()
+        return True
+    return False

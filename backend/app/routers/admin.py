@@ -1,11 +1,14 @@
 import asyncio
+import ipaddress
 import logging
+import re
 import uuid
 from datetime import datetime
+from enum import Enum
 
 import psutil
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +20,7 @@ from app.models.desktop import DesktopAssignment
 from app.models.session import Session
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.auth import hash_password
+from app.services.auth import hash_password, validate_password_strength
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import encrypt_value, decrypt_value
 from app.services.mfa import verify_totp
@@ -31,22 +34,39 @@ settings = get_settings()
 # ── Schemas ──
 
 
+def _validate_url_not_internal(url: str, label: str = "URL") -> None:
+    """Block SSRF by rejecting internal/private IP addresses in URLs."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(status_code=400, detail=f"Invalid {label}")
+    if parsed.scheme not in ("https", "http"):
+        raise HTTPException(status_code=400, detail=f"{label} must use HTTP or HTTPS")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+            raise HTTPException(status_code=400, detail=f"{label} cannot point to internal addresses")
+    except ValueError:
+        pass  # hostname, not IP — OK
+
+
 class CreateUserRequest(BaseModel):
-    username: str
-    password: str
-    email: str | None = None
-    role: str = "user"
+    username: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=8, max_length=256)
+    email: str | None = Field(None, max_length=255)
+    role: str = Field("user", pattern=r"^(user|admin)$")
 
 
 class CreateDesktopRequest(BaseModel):
-    user_id: str
-    display_name: str
-    image_id: str
-    cpu: str = "2B"
-    ram: int = 4096
-    disk_size: int = 50
-    password: str
-    network_name: str | None = None  # None = use tenant default (private VLAN if NAT enabled)
+    user_id: str = Field(..., max_length=50)
+    display_name: str = Field(..., min_length=1, max_length=100)
+    image_id: str = Field(..., max_length=255)
+    cpu: str = Field("2B", max_length=10)
+    ram: int = Field(4096, ge=1024, le=131072)
+    disk_size: int = Field(50, ge=10, le=2000)
+    password: str = Field(..., max_length=256)
+    network_name: str | None = Field(None, max_length=100)  # None = use tenant default
 
     @staticmethod
     def validate_vm_password(pw: str) -> str | None:
@@ -68,22 +88,22 @@ class CreateDesktopRequest(BaseModel):
 
 
 class ImportServerRequest(BaseModel):
-    server_id: str
-    display_name: str
-    user_id: str | None = None
-    password: str | None = None
+    server_id: str = Field(..., max_length=50)
+    display_name: str = Field(..., min_length=1, max_length=100)
+    user_id: str | None = Field(None, max_length=50)
+    password: str | None = Field(None, max_length=256)
 
 
 class UpdateDesktopRequest(BaseModel):
-    user_id: str | None = None  # None = unassign
+    user_id: str | None = Field(None, max_length=50)  # None = unassign
 
 
 class UpdateSettingsRequest(BaseModel):
-    suspend_threshold_minutes: int | None = None
-    max_session_hours: int | None = None
+    suspend_threshold_minutes: int | None = Field(None, ge=5, le=1440)
+    max_session_hours: int | None = Field(None, ge=1, le=24)
     nat_gateway_enabled: bool | None = None
-    gateway_lan_ip: str | None = None
-    default_network_name: str | None = None
+    gateway_lan_ip: str | None = Field(None, max_length=45)
+    default_network_name: str | None = Field(None, max_length=100)
 
 
 # ── Helpers ──
@@ -109,8 +129,8 @@ async def _verify_admin_mfa(admin: User, mfa_code: str, db: AsyncSession) -> Non
                 tenant.duo_ikey, duo_skey, tenant.duo_api_host,
                 admin.username, factor="passcode", passcode=mfa_code,
             )
-        except DuoAuthError as e:
-            raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+        except DuoAuthError:
+            raise HTTPException(status_code=401, detail="MFA verification failed")
     else:
         if not admin.mfa_secret or not verify_totp(admin.mfa_secret, mfa_code):
             raise HTTPException(status_code=401, detail="Invalid MFA code")
@@ -149,6 +169,11 @@ async def create_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Validate password strength
+    pw_error = validate_password_strength(req.password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
+
     # Check for existing user
     existing = await db.execute(
         select(User).where(
@@ -788,7 +813,7 @@ async def terminate_desktop(
         logger.info("Terminated server %s for desktop %s", desktop.cloudwm_server_id, desktop.display_name)
     except Exception as e:
         logger.exception("Failed to terminate server %s", desktop.cloudwm_server_id)
-        raise HTTPException(status_code=502, detail=f"Failed to terminate server: {str(e)}")
+        raise HTTPException(status_code=502, detail="Failed to terminate server. Please try again.")
 
     # Delete all sessions for this desktop
     all_sessions = await db.execute(
@@ -824,7 +849,7 @@ async def activate_desktop(
 
 
 class PowerActionRequest(BaseModel):
-    action: str  # suspend | resume | power_on | power_off | restart
+    action: str = Field(..., pattern=r"^(suspend|resume|power_on|power_off|restart)$")
 
 
 @router.post("/desktops/{desktop_id}/power")
@@ -904,7 +929,7 @@ async def desktop_power_action(
             desktop.last_state_check = datetime.utcnow()
             await db.commit()
         logger.exception("Power action %s failed for %s", req.action, desktop.cloudwm_server_id)
-        raise HTTPException(status_code=502, detail=f"Power action failed: {str(e)}")
+        raise HTTPException(status_code=502, detail="Power action failed. Please try again.")
 
     desktop.last_state_check = datetime.utcnow()
     await db.commit()
@@ -1068,7 +1093,7 @@ async def get_settings_endpoint(
         "gateway_lan_ip": tenant.gateway_lan_ip,
         "default_network_name": tenant.default_network_name,
         "duo_enabled": tenant.duo_enabled,
-        "duo_ikey": tenant.duo_ikey or "",
+        "duo_ikey": (tenant.duo_ikey[:4] + "***" + tenant.duo_ikey[-4:]) if tenant.duo_ikey and len(tenant.duo_ikey) > 8 else ("***" if tenant.duo_ikey else ""),
         "duo_api_host": tenant.duo_api_host or "",
         "duo_auth_mode": tenant.duo_auth_mode,
         "duo_configured": bool(tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host),
@@ -1079,9 +1104,9 @@ async def get_settings_endpoint(
 
 
 class CloudWMSettingsRequest(BaseModel):
-    api_url: str
-    client_id: str
-    secret: str
+    api_url: str = Field(..., max_length=500)
+    client_id: str = Field(..., min_length=1, max_length=255)
+    secret: str = Field(..., min_length=1, max_length=255)
 
 
 @router.put("/settings/cloudwm")
@@ -1090,6 +1115,7 @@ async def update_cloudwm_settings(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    _validate_url_not_internal(req.api_url, "CloudWM API URL")
     tenant = await _get_tenant(db, admin.tenant_id)
     tenant.cloudwm_api_url = req.api_url
     tenant.cloudwm_client_id = req.client_id
@@ -1110,6 +1136,7 @@ async def test_cloudwm_connection(
     admin: User = Depends(require_admin),
 ):
     """Test CloudWM API credentials without saving."""
+    _validate_url_not_internal(req.api_url, "CloudWM API URL")
     try:
         client = CloudWMClient(
             api_url=req.api_url,
@@ -1119,7 +1146,8 @@ async def test_cloudwm_connection(
         token = await client.authenticate()
         return {"status": "ok", "message": "Authentication successful"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
+        logger.warning("CloudWM connection test failed: %s", str(e))
+        raise HTTPException(status_code=400, detail="Connection failed. Check your credentials and API URL.")
 
 
 async def _discover_system_server(
@@ -1357,10 +1385,10 @@ async def list_networks(
 
 class DuoSettingsRequest(BaseModel):
     duo_enabled: bool
-    duo_ikey: str = ""
-    duo_skey: str = ""
-    duo_api_host: str = ""
-    duo_auth_mode: str = "password_duo"
+    duo_ikey: str = Field("", max_length=255)
+    duo_skey: str = Field("", max_length=255)
+    duo_api_host: str = Field("", max_length=255)
+    duo_auth_mode: str = Field("password_duo", pattern=r"^(password_duo|duo_only)$")
 
 
 @router.put("/settings/duo")
@@ -1377,6 +1405,12 @@ async def update_duo_settings(
             raise HTTPException(status_code=400, detail="Integration key and API hostname are required")
         if not req.duo_skey and not tenant.duo_skey_encrypted:
             raise HTTPException(status_code=400, detail="Secret key is required")
+        # Validate DUO host to prevent SSRF
+        from app.services.duo import validate_duo_host, DuoAuthError
+        try:
+            validate_duo_host(req.duo_api_host)
+        except DuoAuthError as e:
+            raise HTTPException(status_code=400, detail=e.message)
 
     tenant.duo_enabled = req.duo_enabled
     tenant.duo_ikey = req.duo_ikey or None
@@ -1404,7 +1438,13 @@ async def test_duo_connection(
     db: AsyncSession = Depends(get_db),
 ):
     """Test DUO API credentials without saving."""
-    from app.services.duo import DuoClient, DuoAuthError
+    from app.services.duo import DuoClient, DuoAuthError, validate_duo_host
+
+    # Validate host first
+    try:
+        validate_duo_host(req.duo_api_host)
+    except DuoAuthError as e:
+        raise HTTPException(status_code=400, detail=e.message)
 
     skey = req.duo_skey
     if not skey:
@@ -1419,10 +1459,10 @@ async def test_duo_connection(
         client = DuoClient(req.duo_ikey, skey, req.duo_api_host)
         await client.check()
         return {"status": "ok", "message": "DUO connection successful"}
-    except DuoAuthError as e:
-        raise HTTPException(status_code=400, detail=f"DUO connection failed: {e.message}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"DUO connection failed: {str(e)}")
+    except DuoAuthError:
+        raise HTTPException(status_code=400, detail="DUO connection failed. Check your credentials.")
+    except Exception:
+        raise HTTPException(status_code=400, detail="DUO connection failed. Check your credentials and API hostname.")
 
 
 # ── System Status ──

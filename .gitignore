@@ -1,4 +1,5 @@
 .env
+.env.*
 nginx/ssl/
 *.pem
 *.key
@@ -10,3 +11,4 @@ dist/
 build/
 *.log
 .DS_Store
+*.tsbuildinfo

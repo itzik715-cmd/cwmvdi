@@ -2,13 +2,36 @@ import base64
 import email.utils
 import hashlib
 import hmac
+import ipaddress
 import logging
+import re
 import urllib.parse
 from typing import Literal
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Valid DUO API hostname pattern
+_DUO_HOST_PATTERN = re.compile(r"^api-[a-zA-Z0-9]+\.duosecurity\.(com|eu)$")
+
+
+def validate_duo_host(api_host: str) -> None:
+    """Validate DUO API hostname to prevent SSRF attacks."""
+    if not api_host:
+        raise DuoAuthError("DUO API hostname is required")
+    host = api_host.strip().lower()
+    if not _DUO_HOST_PATTERN.match(host):
+        raise DuoAuthError(
+            "Invalid DUO API hostname. Must match api-XXXXXXXX.duosecurity.com"
+        )
+    # Block internal/private IPs
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_reserved:
+            raise DuoAuthError("DUO API hostname cannot be a private IP address")
+    except ValueError:
+        pass  # Not an IP — expected for valid hostnames
 
 
 class DuoAuthError(Exception):
@@ -27,6 +50,7 @@ class DuoClient:
     """
 
     def __init__(self, ikey: str, skey: str, api_host: str):
+        validate_duo_host(api_host)
         self.ikey = ikey
         self.skey = skey
         self.api_host = api_host
@@ -69,7 +93,7 @@ class DuoClient:
         headers = self._build_auth_header(method, path, params, date)
         url = f"https://{self.api_host}{path}"
 
-        async with httpx.AsyncClient(timeout=65.0) as client:
+        async with httpx.AsyncClient(timeout=65.0, verify=True) as client:
             if method.upper() == "GET":
                 resp = await client.get(url, params=params, headers=headers)
             else:
@@ -88,7 +112,7 @@ class DuoClient:
     async def ping(self) -> bool:
         """Verify API host is reachable (no auth needed)."""
         url = f"https://{self.api_host}/auth/v2/ping"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
             resp = await client.get(url)
         data = resp.json()
         return data.get("stat") == "OK"

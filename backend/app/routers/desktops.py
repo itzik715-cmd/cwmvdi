@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -96,8 +96,8 @@ async def _verify_connection_mfa(user: User, mfa_code: str | None, db: AsyncSess
                     tenant.duo_ikey, duo_skey, tenant.duo_api_host,
                     user.username, factor="push",
                 )
-        except DuoAuthError as e:
-            raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+        except DuoAuthError:
+            raise HTTPException(status_code=401, detail="MFA verification failed")
     else:
         # TOTP path
         if user.mfa_required and not user.mfa_enabled:
@@ -169,6 +169,7 @@ async def list_desktops(
 @router.post("/{desktop_id}/connect", response_model=ConnectResponse)
 async def connect_desktop(
     desktop_id: str,
+    request: Request,
     req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -233,11 +234,13 @@ async def connect_desktop(
     )
 
     # 3. Create session record
+    client_ip = request.client.host if request.client else None
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
         connection_type="browser",
         guacamole_connection_id=connection_name,
+        client_ip=client_ip,
     )
     db.add(session)
     await db.commit()
@@ -255,6 +258,7 @@ async def connect_desktop(
 @router.post("/{desktop_id}/rdp-file")
 async def download_rdp_file(
     desktop_id: str,
+    request: Request,
     req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -299,12 +303,14 @@ async def download_rdp_file(
 
     # 3. Create session record
     public_ip = settings.server_public_ip or settings.portal_domain
+    client_ip = request.client.host if request.client else None
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
         connection_type="native",
         proxy_port=port,
         proxy_pid=pid,
+        client_ip=client_ip,
     )
     db.add(session)
     await db.commit()
@@ -328,6 +334,7 @@ async def download_rdp_file(
 @router.post("/{desktop_id}/native-rdp")
 async def native_rdp(
     desktop_id: str,
+    request: Request,
     req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -372,12 +379,14 @@ async def native_rdp(
 
     # 3. Create session record
     public_ip = settings.server_public_ip or settings.portal_domain
+    client_ip = request.client.host if request.client else None
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
         connection_type="native",
         proxy_port=port,
         proxy_pid=pid,
+        client_ip=client_ip,
     )
     db.add(session)
     await db.commit()

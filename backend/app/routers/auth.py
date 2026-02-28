@@ -1,9 +1,11 @@
+import re
 import time
+import uuid
 from collections import defaultdict
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,39 +14,76 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.auth import verify_password, create_access_token
+from app.services.auth import (
+    verify_password,
+    create_access_token,
+    decode_access_token,
+    validate_password_strength,
+)
 from app.services.mfa import (
     generate_mfa_secret,
     get_totp_uri,
     generate_qr_code_base64,
     verify_totp,
 )
+from app.services.token_blacklist import blacklist_token
 
 router = APIRouter()
 settings = get_settings()
 
-# Simple in-memory rate limiter
-_login_attempts: dict[str, list[float]] = defaultdict(list)
+# Rate limiter (login + MFA verification)
+_rate_attempts: dict[str, list[float]] = defaultdict(list)
+
+# Account lockout tracking
+_failed_attempts: dict[str, int] = defaultdict(int)
+_lockout_until: dict[str, float] = {}
 
 
-def _check_rate_limit(key: str) -> None:
+def _check_rate_limit(key: str, max_attempts: int | None = None, window: int = 60) -> None:
     now = time.time()
-    attempts = _login_attempts[key]
-    _login_attempts[key] = [t for t in attempts if now - t < 60]
-    if len(_login_attempts[key]) >= settings.login_rate_limit:
+    limit = max_attempts or settings.login_rate_limit
+
+    # Check account lockout
+    if key in _lockout_until and now < _lockout_until[key]:
+        remaining = int(_lockout_until[key] - now)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts. Try again in 1 minute.",
+            detail=f"Account locked. Try again in {remaining} seconds.",
         )
-    _login_attempts[key].append(now)
+
+    attempts = _rate_attempts[key]
+    _rate_attempts[key] = [t for t in attempts if now - t < window]
+    if len(_rate_attempts[key]) >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many attempts. Try again in {window} seconds.",
+        )
+    _rate_attempts[key].append(now)
+
+
+def _record_failed_attempt(key: str) -> None:
+    """Track failed attempts for progressive lockout."""
+    _failed_attempts[key] += 1
+    count = _failed_attempts[key]
+    if count >= 10:
+        _lockout_until[key] = time.time() + 3600  # 1 hour
+    elif count >= 7:
+        _lockout_until[key] = time.time() + 900  # 15 minutes
+    elif count >= 5:
+        _lockout_until[key] = time.time() + 300  # 5 minutes
+
+
+def _clear_failed_attempts(key: str) -> None:
+    _failed_attempts.pop(key, None)
+    _lockout_until.pop(key, None)
 
 
 # ── Schemas ──
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str | None = None
+    username: str = Field(..., min_length=1, max_length=150)
+    password: str | None = Field(None, max_length=256)
 
 
 class LoginResponse(BaseModel):
@@ -62,14 +101,14 @@ class LoginResponse(BaseModel):
 
 class MFAVerifyRequest(BaseModel):
     mfa_token: str
-    code: str
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class DuoVerifyRequest(BaseModel):
     duo_token: str
-    factor: str = "push"
-    passcode: str | None = None
-    device: str = "auto"
+    factor: str = Field("push", pattern=r"^(push|passcode)$")
+    passcode: str | None = Field(None, max_length=20)
+    device: str = Field("auto", max_length=50)
 
 
 class MFASetupResponse(BaseModel):
@@ -78,7 +117,14 @@ class MFASetupResponse(BaseModel):
     provisioning_uri: str
 
 
+class ConfirmMFARequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 # ── Endpoints ──
+
+
+_MFA_TOKEN_EXPIRY = timedelta(minutes=5)
 
 
 @router.post("/login")
@@ -101,6 +147,10 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
         tenant = t_result.scalar_one_or_none()
 
     is_admin = user.role in ("admin", "superadmin") if user else False
+    lockout_key = f"user:{req.username}"
+
+    # Check per-user lockout
+    _check_rate_limit(lockout_key, max_attempts=10, window=300)
 
     # === DUO ENABLED PATH ===
     duo_active = (
@@ -118,11 +168,14 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
             if not req.password:
                 raise HTTPException(status_code=400, detail="Password is required")
             if user is None or not verify_password(req.password, user.password_hash):
+                _record_failed_attempt(lockout_key)
                 raise HTTPException(status_code=401, detail="Invalid username or password")
         else:
             # duo_only mode for regular users
             if user is None:
-                raise HTTPException(status_code=401, detail="Invalid username")
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        _clear_failed_attempts(lockout_key)
 
         # DUO preauth
         duo_skey = decrypt_value(tenant.duo_skey_encrypted)
@@ -130,8 +183,8 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
         try:
             preauth_result = await duo_client.preauth(user.username)
-        except DuoAuthError as e:
-            raise HTTPException(status_code=401, detail=f"DUO error: {e.message}")
+        except DuoAuthError:
+            raise HTTPException(status_code=401, detail="MFA verification failed")
 
         preauth_status = preauth_result.get("result")
 
@@ -144,10 +197,10 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
             return {"requires_mfa": False, "requires_duo": False, "access_token": access_token, "token_type": "bearer"}
 
         if preauth_status == "deny":
-            raise HTTPException(status_code=401, detail="DUO denied access")
+            raise HTTPException(status_code=401, detail="Access denied")
 
         if preauth_status == "enroll":
-            raise HTTPException(status_code=401, detail="User not enrolled in DUO. Contact your administrator.")
+            raise HTTPException(status_code=401, detail="User not enrolled in MFA. Contact your administrator.")
 
         # preauth_status == "auth" — return available factors
         devices = preauth_result.get("devices", [])
@@ -157,6 +210,7 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
         duo_token = create_access_token(
             user_id=user.id, tenant_id=user.tenant_id, role="duo_pending",
+            expires_delta=_MFA_TOKEN_EXPIRY,
         )
         return {
             "requires_mfa": False,
@@ -170,17 +224,20 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
     # === TOTP PATH (DUO not enabled) ===
     if user is None or not req.password or not verify_password(req.password, user.password_hash):
+        _record_failed_attempt(lockout_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
 
+    _clear_failed_attempts(lockout_key)
     token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
 
     # MFA at login is only required for admins
     if is_admin and user.mfa_enabled and user.mfa_secret:
         mfa_token = create_access_token(
             user_id=user.id, tenant_id=user.tenant_id, role="mfa_pending",
+            expires_delta=_MFA_TOKEN_EXPIRY,
         )
         return LoginResponse(requires_mfa=True, mfa_token=mfa_token)
 
@@ -192,13 +249,13 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
 
 @router.post("/verify-mfa", response_model=LoginResponse)
-async def verify_mfa(req: MFAVerifyRequest, db: AsyncSession = Depends(get_db)):
-    from app.services.auth import decode_access_token
-    import uuid
+async def verify_mfa(req: MFAVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(f"mfa:{client_ip}", max_attempts=5, window=60)
 
     payload = decode_access_token(req.mfa_token)
     if payload is None or payload.get("role") != "mfa_pending":
-        raise HTTPException(status_code=401, detail="Invalid MFA token")
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
 
     user_id = uuid.UUID(payload["sub"])
     result = await db.execute(select(User).where(User.id == user_id))
@@ -221,16 +278,17 @@ async def verify_mfa(req: MFAVerifyRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/verify-duo")
-async def verify_duo_endpoint(req: DuoVerifyRequest, db: AsyncSession = Depends(get_db)):
+async def verify_duo_endpoint(req: DuoVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Complete DUO authentication after preauth."""
-    from app.services.auth import decode_access_token
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(f"duo:{client_ip}", max_attempts=5, window=60)
+
     from app.services.duo import DuoClient, DuoAuthError
     from app.services.encryption import decrypt_value
-    import uuid
 
     payload = decode_access_token(req.duo_token)
     if payload is None or payload.get("role") != "duo_pending":
-        raise HTTPException(status_code=401, detail="Invalid DUO token")
+        raise HTTPException(status_code=401, detail="Invalid or expired DUO token")
 
     user_id = uuid.UUID(payload["sub"])
     tenant_id = uuid.UUID(payload["tenant_id"])
@@ -243,7 +301,7 @@ async def verify_duo_endpoint(req: DuoVerifyRequest, db: AsyncSession = Depends(
     t_result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = t_result.scalar_one_or_none()
     if not tenant or not tenant.duo_enabled:
-        raise HTTPException(status_code=401, detail="DUO not enabled")
+        raise HTTPException(status_code=401, detail="MFA not enabled")
 
     duo_skey = decrypt_value(tenant.duo_skey_encrypted)
     duo_client = DuoClient(tenant.duo_ikey, duo_skey, tenant.duo_api_host)
@@ -256,12 +314,12 @@ async def verify_duo_endpoint(req: DuoVerifyRequest, db: AsyncSession = Depends(
                 raise HTTPException(status_code=400, detail="Passcode required")
             auth_result = await duo_client.auth_passcode(user.username, req.passcode)
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported factor: {req.factor}")
-    except DuoAuthError as e:
-        raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+            raise HTTPException(status_code=400, detail="Unsupported factor")
+    except DuoAuthError:
+        raise HTTPException(status_code=401, detail="MFA verification failed")
 
     if auth_result.get("result") != "allow":
-        raise HTTPException(status_code=401, detail=auth_result.get("status_msg", "DUO denied"))
+        raise HTTPException(status_code=401, detail="MFA verification failed")
 
     is_admin = user.role in ("admin", "superadmin")
     token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
@@ -274,8 +332,14 @@ async def verify_duo_endpoint(req: DuoVerifyRequest, db: AsyncSession = Depends(
 
 
 @router.post("/logout")
-async def logout():
-    # JWT is stateless; client discards the token.
+async def logout(request: Request):
+    """Revoke the current JWT token."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        payload = decode_access_token(token)
+        if payload and payload.get("jti"):
+            await blacklist_token(payload["jti"])
     return {"message": "Logged out"}
 
 
@@ -322,8 +386,8 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(..., max_length=256)
+    new_password: str = Field(..., max_length=256)
 
 
 @router.post("/change-password")
@@ -337,8 +401,9 @@ async def change_password(
     if not verify_password(req.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    if len(req.new_password) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    pw_error = validate_password_strength(req.new_password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
 
     user.password_hash = do_hash(req.new_password)
     user.must_change_password = False
@@ -363,7 +428,7 @@ async def setup_mfa(user: User = Depends(get_current_user), db: AsyncSession = D
 
 @router.post("/confirm-mfa")
 async def confirm_mfa(
-    code: str,
+    req: ConfirmMFARequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -371,7 +436,7 @@ async def confirm_mfa(
     if not user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA not set up yet")
 
-    if not verify_totp(user.mfa_secret, code):
+    if not verify_totp(user.mfa_secret, req.code):
         raise HTTPException(status_code=400, detail="Invalid code — scan the QR and try again")
 
     user.mfa_enabled = True

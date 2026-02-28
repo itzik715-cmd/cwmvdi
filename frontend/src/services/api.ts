@@ -121,6 +121,6 @@ export const authApi = {
     api.post("/auth/verify-duo", { duo_token, factor, passcode, device }),
   setupMFA: () => api.post("/auth/setup-mfa"),
   confirmMFA: (code: string) =>
-    api.post(`/auth/confirm-mfa?code=${encodeURIComponent(code)}`),
+    api.post("/auth/confirm-mfa", { code }),
   me: () => api.get("/auth/me"),
 };

@@ -1,9 +1,9 @@
 // Helper script to run commands on remote server via SSH
 const {Client} = require('ssh2');
 
-const HOST = '83.229.71.162';
-const USER = 'root';
-const KEY_PATH = require('path').join(require('os').homedir(), '.ssh', 'proxi-test-tlv');
+const HOST = process.env.DEPLOY_HOST || '83.229.71.162';
+const USER = process.env.DEPLOY_USER || 'root';
+const KEY_PATH = process.env.DEPLOY_KEY || require('path').join(require('os').homedir(), '.ssh', 'proxi-test-tlv');
 
 function exec(cmd, timeout = 120000) {
   return new Promise((resolve, reject) => {

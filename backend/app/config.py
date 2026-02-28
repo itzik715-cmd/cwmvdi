@@ -1,5 +1,12 @@
+import logging
+import sys
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
+
+_INSECURE_DEFAULTS = {"changeme-generate-with-openssl-rand-hex-32", "changeme"}
 
 
 class Settings(BaseSettings):
@@ -43,9 +50,31 @@ class Settings(BaseSettings):
     # Rate limiting
     login_rate_limit: int = 5  # max attempts per minute
 
+    # Environment
+    environment: str = "production"  # "development" or "production"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    def validate_security(self) -> None:
+        """Validate that insecure default secrets are not used in production."""
+        if self.environment == "development":
+            return
+        errors = []
+        if self.secret_key in _INSECURE_DEFAULTS or len(self.secret_key) < 32:
+            errors.append("SECRET_KEY must be set to a strong random value (>= 32 chars)")
+        if self.encryption_key in _INSECURE_DEFAULTS or len(self.encryption_key) < 32:
+            errors.append("ENCRYPTION_KEY must be set to a strong random value (>= 32 chars)")
+        if errors:
+            for e in errors:
+                logger.critical("SECURITY: %s", e)
+            sys.exit(1)
+        # Non-fatal warnings
+        if self.admin_password in _INSECURE_DEFAULTS:
+            logger.warning("SECURITY: ADMIN_PASSWORD is set to default. Change it in .env")
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    s.validate_security()
+    return s
