@@ -39,7 +39,7 @@ app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
 
 @app.get("/api/health")
 async def health_check():
-    checks = {"database": "error", "redis": "error", "boundary": "error", "cloudwm": "error"}
+    checks = {"database": "error", "redis": "error", "guacamole": "error", "cloudwm": "error"}
 
     # Database
     try:
@@ -63,14 +63,14 @@ async def health_check():
     except Exception:
         pass
 
-    # Boundary
+    # Guacamole
     try:
         import httpx
 
-        async with httpx.AsyncClient(verify=False, timeout=5) as client:
-            resp = await client.get(f"{settings.boundary_url}/v1/scopes?scope_id=global")
-            if resp.status_code in (200, 401):
-                checks["boundary"] = "ok"
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{settings.guacamole_url}/api/languages")
+            if resp.status_code == 200:
+                checks["guacamole"] = "ok"
     except Exception:
         pass
 

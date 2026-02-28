@@ -17,15 +17,17 @@ export interface Desktop {
 }
 
 export interface ConnectResult {
-  uri: string;
   session_id: string;
   desktop_name: string;
+  connection_type: "browser" | "native";
+  guacamole_token?: string;
+  guacamole_url?: string;
 }
 
 export interface AdminDesktop extends Desktop {
   user_email: string;
   user_id: string | null;
-  boundary_target_id: string | null;
+  vm_private_ip: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -45,7 +47,7 @@ export interface AdminSession {
   desktop_id: string;
   started_at: string;
   last_heartbeat: string | null;
-  agent_version: string | null;
+  connection_type: "browser" | "native";
 }
 
 export interface AuditEntry {

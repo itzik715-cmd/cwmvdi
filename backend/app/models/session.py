@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,10 @@ class Session(Base):
     # reasons: user_disconnect | idle_timeout | admin_terminate | error
     client_ip: Mapped[str | None] = mapped_column(String(45))
     agent_version: Mapped[str | None] = mapped_column(String(20))
+    connection_type: Mapped[str] = mapped_column(String(20), default="browser")
+    guacamole_connection_id: Mapped[str | None] = mapped_column(String(255))
+    proxy_port: Mapped[int | None] = mapped_column(Integer)
+    proxy_pid: Mapped[int | None] = mapped_column(Integer)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
     desktop: Mapped["DesktopAssignment"] = relationship(back_populates="sessions")

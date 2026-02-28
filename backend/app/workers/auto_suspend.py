@@ -9,7 +9,6 @@ from app.config import get_settings
 from app.models.desktop import DesktopAssignment
 from app.models.session import Session
 from app.models.tenant import Tenant
-from app.services.boundary import BoundaryClient
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import decrypt_value
 from app.workers.celery_app import celery_app
@@ -87,18 +86,13 @@ async def _check_idle_sessions_async():
                     )
                     await cloudwm.suspend(desktop.cloudwm_server_id)
 
-                    # Cancel Boundary session
-                    if session.boundary_session_id:
-                        boundary = BoundaryClient(
-                            controller_url=settings.boundary_url,
-                            tls_insecure=settings.boundary_tls_insecure,
-                        )
-                        await boundary.authenticate(
-                            auth_method_id=settings.boundary_auth_method_id,
-                            login_name=settings.boundary_admin_login,
-                            password=settings.boundary_admin_password,
-                        )
-                        await boundary.cancel_session(session.boundary_session_id)
+                    # Clean up TCP proxy if this was a native session
+                    if session.proxy_pid:
+                        import os, signal
+                        try:
+                            os.kill(session.proxy_pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
 
                     # Update DB
                     session.ended_at = datetime.utcnow()

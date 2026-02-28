@@ -8,7 +8,7 @@ fatal() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║         KamVDI Installation v1.0         ║"
+echo "║         KamVDI Installation v2.0         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
@@ -80,6 +80,7 @@ ENCRYPTION_KEY=$(openssl rand -hex 32)
 PG_PASS=$(openssl rand -hex 16)
 REDIS_PASS=$(openssl rand -hex 16)
 ADMIN_PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 12)
+GUAC_SECRET=$(openssl rand -hex 16)
 
 # ── .env ───────────────────────────────────────────────────
 cat > .env << EOF
@@ -99,12 +100,10 @@ DEFAULT_SUSPEND_MINUTES=${SUSPEND_MIN}
 CLOUDWM_API_URL=
 CLOUDWM_CLIENT_ID=
 CLOUDWM_SECRET_ENCRYPTED=
-BOUNDARY_ADDR=http://boundary:9200
-BOUNDARY_AUTH_METHOD_ID=
-BOUNDARY_ADMIN_LOGIN=admin
-BOUNDARY_ADMIN_PASSWORD=
-BOUNDARY_ORG_ID=
-BOUNDARY_TLS_INSECURE=true
+GUACAMOLE_JSON_SECRET=${GUAC_SECRET}
+GUACAMOLE_URL=http://guacamole:8080/guacamole
+GUACAMOLE_PUBLIC_PATH=/guacamole
+SERVER_PUBLIC_IP=${SERVER_IP}
 NAT_GATEWAY_ENABLED=${ENABLE_NAT:-N}
 EOF
 chmod 600 .env
@@ -125,13 +124,11 @@ if command -v certbot &>/dev/null; then
   log "Requesting Let's Encrypt certificate for ${PORTAL_DOMAIN}..."
   if certbot certonly --standalone --non-interactive --agree-tos \
        --email "${ADMIN_EMAIL}" -d "${PORTAL_DOMAIN}" 2>&1; then
-    # Copy certs to nginx/ssl (containers can't follow host symlinks)
     cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/fullchain.pem nginx/ssl/cert.pem
     cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/privkey.pem nginx/ssl/key.pem
     USE_LE=true
     log "Let's Encrypt certificate obtained"
 
-    # Auto-renewal cron: renew + copy + reload nginx
     RENEW_SCRIPT="/etc/cron.d/kamvdi-cert-renew"
     cat > ${RENEW_SCRIPT} << CRON
 SHELL=/bin/bash
@@ -156,44 +153,6 @@ if [[ "$USE_LE" == "false" ]]; then
   log "Self-signed certificate generated"
 fi
 
-# ── Build Agent ───────────────────────────────────────────
-log "Building KamVDI agent..."
-mkdir -p downloads
-
-if ! command -v go &>/dev/null; then
-  log "Installing Go..."
-  curl -fsSL https://go.dev/dl/go1.22.10.linux-amd64.tar.gz -o /tmp/go.tar.gz
-  tar -C /usr/local -xzf /tmp/go.tar.gz
-  rm /tmp/go.tar.gz
-fi
-export PATH=$PATH:/usr/local/go/bin
-
-cd agent
-go mod tidy 2>/dev/null
-go mod download 2>/dev/null
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
-  -ldflags "-H windowsgui -s -w -X main.Version=1.0.0" \
-  -o ../downloads/KamVDI-Setup.exe ./main.go
-cd ..
-log "Agent built"
-
-# Download Boundary CLI for Windows (agent auto-downloads from portal)
-if [[ ! -f downloads/boundary.exe ]]; then
-  log "Downloading Boundary CLI for Windows..."
-  BOUNDARY_VER="0.16.2"
-  curl -fsSL "https://releases.hashicorp.com/boundary/${BOUNDARY_VER}/boundary_${BOUNDARY_VER}_windows_amd64.zip" \
-    -o /tmp/boundary-win.zip
-  apt-get install -y -qq unzip > /dev/null 2>&1 || true
-  unzip -o /tmp/boundary-win.zip boundary.exe -d downloads/
-  rm /tmp/boundary-win.zip
-  log "Boundary CLI downloaded"
-fi
-
-# Version manifest for agent auto-updater
-cat > downloads/version.json << VEOF
-{"version":"1.0.0","min_version":"1.0.0","download_url":"/downloads/KamVDI-Setup.exe"}
-VEOF
-
 # ── Start ──────────────────────────────────────────────────
 log "Starting services..."
 docker compose up -d --build
@@ -207,74 +166,9 @@ if [[ "${ENABLE_NAT:-N}" =~ ^[Yy] ]]; then
   bash "$(dirname "$0")/setup-nat-gateway.sh" "${LAN_IFACE:-}" "${WAN_IFACE:-}"
 fi
 
-# ── Boundary Init ─────────────────────────────────────────
-log "Initializing Boundary..."
-
-# Create the boundary database (Boundary needs its own DB)
-docker compose exec -T postgres psql -U kamvdi -d kamvdi -c "CREATE DATABASE boundary;" 2>/dev/null || true
-
-# Stop the crashing Boundary container so we can run init cleanly
-docker compose stop boundary 2>/dev/null || true
-
-# Run boundary database init and capture the output
-BOUNDARY_INIT_OUTPUT=$(docker run --rm \
-  --network "$(basename $(pwd))_default" \
-  -v "$(pwd)/boundary/config.hcl:/boundary/config.hcl:ro" \
-  -e BOUNDARY_POSTGRES_URL="postgresql://kamvdi:${PG_PASS}@postgres:5432/boundary?sslmode=disable" \
-  hashicorp/boundary:0.16 database init -config /boundary/config.hcl 2>&1) || true
-
-# Parse the generated auth method ID, org ID, and admin password
-BOUNDARY_AUTH_METHOD_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Auth Method ID:" | head -1 | awk '{print $NF}')
-BOUNDARY_ORG_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Scope ID:" | head -1 | awk '{print $NF}')
-BOUNDARY_GEN_PASSWORD=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Password:" | head -1 | awk '{print $NF}')
-BOUNDARY_LOGIN_NAME=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Login Name:" | head -1 | awk '{print $NF}')
-BOUNDARY_LOGIN_NAME=${BOUNDARY_LOGIN_NAME:-admin}
-
-if [[ -n "$BOUNDARY_AUTH_METHOD_ID" ]]; then
-  log "Boundary initialized (auth_method: ${BOUNDARY_AUTH_METHOD_ID}, org: ${BOUNDARY_ORG_ID})"
-
-  # Reset the Boundary admin password to something safe (no special chars)
-  BOUNDARY_SAFE_PASSWORD=$(openssl rand -hex 16)
-  BOUNDARY_ACCT_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Account ID:" | head -1 | awk '{print $NF}')
-
-  if [[ -n "$BOUNDARY_ACCT_ID" ]]; then
-    docker run --rm \
-      --network "$(basename $(pwd))_default" \
-      -v "$(pwd)/boundary/config.hcl:/boundary/config.hcl:ro" \
-      -e BOUNDARY_POSTGRES_URL="postgresql://kamvdi:${PG_PASS}@postgres:5432/boundary?sslmode=disable" \
-      -e NEWPW="${BOUNDARY_SAFE_PASSWORD}" \
-      hashicorp/boundary:0.16 accounts set-password \
-        -id "${BOUNDARY_ACCT_ID}" \
-        -password "env://NEWPW" \
-        -recovery-config /boundary/config.hcl > /dev/null 2>&1 && \
-      log "Boundary admin password reset" || \
-      BOUNDARY_SAFE_PASSWORD="${BOUNDARY_GEN_PASSWORD}"
-  else
-    BOUNDARY_SAFE_PASSWORD="${BOUNDARY_GEN_PASSWORD}"
-  fi
-
-  # Update .env with the generated Boundary values
-  sed -i "s|^BOUNDARY_AUTH_METHOD_ID=.*|BOUNDARY_AUTH_METHOD_ID=${BOUNDARY_AUTH_METHOD_ID}|" .env
-  sed -i "s|^BOUNDARY_ADMIN_LOGIN=.*|BOUNDARY_ADMIN_LOGIN=${BOUNDARY_LOGIN_NAME}|" .env
-  sed -i "s|^BOUNDARY_ADMIN_PASSWORD=.*|BOUNDARY_ADMIN_PASSWORD=${BOUNDARY_SAFE_PASSWORD}|" .env
-  sed -i "s|^BOUNDARY_ORG_ID=.*|BOUNDARY_ORG_ID=${BOUNDARY_ORG_ID}|" .env
-else
-  warn "Could not parse Boundary init output. Boundary proxy may need manual setup."
-  warn "You can find init output in the install log."
-fi
-
-# Start Boundary again (now with initialized DB)
-docker compose start boundary
-sleep 5
-
 # ── DB Init ────────────────────────────────────────────────
 log "Initializing database..."
 docker compose exec -T backend python -m alembic upgrade head
-
-# Recreate backend & celery so they pick up the new Boundary env vars
-# (docker compose restart does NOT reload .env — must recreate)
-docker compose up -d --force-recreate backend celery
-sleep 5
 
 # ── First Admin ────────────────────────────────────────────
 log "Creating admin account..."

@@ -17,7 +17,6 @@ from app.models.session import Session
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import hash_password
-from app.services.boundary import BoundaryClient
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import encrypt_value, decrypt_value
 
@@ -68,19 +67,6 @@ async def _get_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     return tenant
-
-
-async def _get_boundary() -> BoundaryClient:
-    client = BoundaryClient(
-        controller_url=settings.boundary_url,
-        tls_insecure=settings.boundary_tls_insecure,
-    )
-    await client.authenticate(
-        auth_method_id=settings.boundary_auth_method_id,
-        login_name=settings.boundary_admin_login,
-        password=settings.boundary_admin_password,
-    )
-    return client
 
 
 # ── Users ──
@@ -212,7 +198,7 @@ async def list_all_desktops(
             "user_id": str(d.user_id) if d.user_id else None,
             "cloudwm_server_id": d.cloudwm_server_id,
             "current_state": d.current_state,
-            "boundary_target_id": d.boundary_target_id,
+            "vm_private_ip": d.vm_private_ip,
             "is_active": d.is_active,
             "created_at": d.created_at.isoformat(),
         }
@@ -228,6 +214,7 @@ async def _provision_desktop_background(
     cloudwm_secret: str,
     command_id: int,
     vm_name: str,
+    vm_password: str = "",
 ):
     """Background task: wait for VM creation, update desktop record."""
     try:
@@ -280,32 +267,10 @@ async def _provision_desktop_background(
             except Exception:
                 pass
 
-            # Register desktop with Boundary if tenant has a project
-            if desktop.vm_private_ip:
-                try:
-                    tenant_result = await db.execute(
-                        select(Tenant).where(Tenant.id == tenant_id)
-                    )
-                    tenant = tenant_result.scalar_one_or_none()
-                    if (
-                        tenant
-                        and tenant.boundary_project_id
-                        and tenant.boundary_host_catalog_id
-                        and tenant.boundary_host_set_id
-                    ):
-                        boundary = await _get_boundary()
-                        bt = await boundary.setup_desktop_target(
-                            project_id=tenant.boundary_project_id,
-                            host_catalog_id=tenant.boundary_host_catalog_id,
-                            host_set_id=tenant.boundary_host_set_id,
-                            desktop_name=desktop.display_name.lower().replace(" ", "-"),
-                            vm_ip=desktop.vm_private_ip,
-                        )
-                        desktop.boundary_target_id = bt["target_id"]
-                        desktop.boundary_host_id = bt["host_id"]
-                        logger.info("Boundary target created for desktop %s: %s", desktop_id, bt["target_id"])
-                except Exception:
-                    logger.exception("Failed to create Boundary target for desktop %s", desktop_id)
+            # Store RDP credentials for Guacamole auto-login
+            desktop.vm_rdp_username = "Administrator"
+            if vm_password:
+                desktop.vm_rdp_password_encrypted = encrypt_value(vm_password)
 
             await db.commit()
             logger.info("Desktop %s provisioned successfully (server: %s)", desktop_id, server_id)
@@ -428,6 +393,7 @@ async def create_desktop(
             cloudwm_secret=decrypt_value(tenant.cloudwm_secret_encrypted),
             command_id=command_id,
             vm_name=vm_name,
+            vm_password=req.password,
         )
     )
 
@@ -478,73 +444,6 @@ async def update_desktop(
     return {"message": "Desktop updated"}
 
 
-@router.post("/desktops/{desktop_id}/setup-boundary")
-async def setup_desktop_boundary(
-    desktop_id: str,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Manually set up Boundary target for an existing desktop."""
-    tenant = await _get_tenant(db, admin.tenant_id)
-
-    if not tenant.boundary_project_id:
-        raise HTTPException(status_code=400, detail="Boundary project not configured for tenant. Re-save CloudWM settings first.")
-
-    result = await db.execute(
-        select(DesktopAssignment).where(
-            DesktopAssignment.id == uuid.UUID(desktop_id),
-            DesktopAssignment.tenant_id == admin.tenant_id,
-        )
-    )
-    desktop = result.scalar_one_or_none()
-    if not desktop:
-        raise HTTPException(status_code=404, detail="Desktop not found")
-
-    if desktop.boundary_target_id:
-        return {"message": "Boundary target already configured", "target_id": desktop.boundary_target_id}
-
-    if not desktop.vm_private_ip:
-        # Try to fetch IP from CloudWM
-        if desktop.cloudwm_server_id and tenant.cloudwm_client_id:
-            try:
-                cloudwm = CloudWMClient(
-                    api_url=tenant.cloudwm_api_url,
-                    client_id=tenant.cloudwm_client_id,
-                    secret=decrypt_value(tenant.cloudwm_secret_encrypted),
-                )
-                server_data = await cloudwm.get_server(desktop.cloudwm_server_id)
-                networks = server_data.get("networks", [])
-                if isinstance(networks, list):
-                    for net in networks:
-                        if isinstance(net, dict):
-                            ips = net.get("ips", [])
-                            if isinstance(ips, list) and ips:
-                                desktop.vm_private_ip = ips[0]
-                                break
-            except Exception:
-                pass
-
-    if not desktop.vm_private_ip:
-        raise HTTPException(status_code=400, detail="Desktop has no IP address. VM may still be provisioning.")
-
-    try:
-        boundary = await _get_boundary()
-        bt = await boundary.setup_desktop_target(
-            project_id=tenant.boundary_project_id,
-            host_catalog_id=tenant.boundary_host_catalog_id,
-            host_set_id=tenant.boundary_host_set_id,
-            desktop_name=desktop.display_name.lower().replace(" ", "-"),
-            vm_ip=desktop.vm_private_ip,
-        )
-        desktop.boundary_target_id = bt["target_id"]
-        desktop.boundary_host_id = bt["host_id"]
-        await db.commit()
-        return {"message": "Boundary target created", "target_id": bt["target_id"]}
-    except Exception as e:
-        logger.exception("Failed to setup Boundary for desktop %s", desktop_id)
-        raise HTTPException(status_code=500, detail=f"Boundary setup failed: {str(e)}")
-
-
 @router.delete("/desktops/{desktop_id}")
 async def delete_desktop(
     desktop_id: str,
@@ -592,7 +491,7 @@ async def list_active_sessions(
             "desktop_id": str(s.desktop_id),
             "started_at": s.started_at.isoformat(),
             "last_heartbeat": s.last_heartbeat.isoformat() if s.last_heartbeat else None,
-            "agent_version": s.agent_version,
+            "connection_type": s.connection_type or "browser",
         }
         for s in sessions
     ]
@@ -620,9 +519,11 @@ async def force_terminate_session(
     session.ended_at = datetime.utcnow()
     session.end_reason = "admin_terminate"
 
-    if session.boundary_session_id:
-        boundary = await _get_boundary()
-        await boundary.cancel_session(session.boundary_session_id)
+    # Clean up TCP proxy if this was a native session
+    if session.proxy_pid:
+        from app.services.rdp_proxy import RDPProxyManager
+        proxy_mgr = RDPProxyManager()
+        await proxy_mgr.stop_proxy(session.proxy_pid)
 
     await db.commit()
     return {"message": "Session terminated"}
@@ -770,31 +671,6 @@ async def test_cloudwm_connection(
         raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
 
-async def _ensure_boundary_project(tenant: Tenant, db: AsyncSession) -> None:
-    """Ensure the tenant has a Boundary project. Create one if missing."""
-    if tenant.boundary_project_id:
-        return  # Already set up
-
-    if not settings.boundary_auth_method_id or not settings.boundary_org_id:
-        logger.warning("Boundary not configured (missing auth_method_id or org_id), skipping project setup")
-        return
-
-    try:
-        boundary = await _get_boundary()
-        result = await boundary.setup_tenant_project(
-            tenant_name=tenant.slug or str(tenant.id)[:8],
-            org_id=settings.boundary_org_id,
-        )
-        tenant.boundary_org_id = settings.boundary_org_id
-        tenant.boundary_project_id = result["project_id"]
-        tenant.boundary_host_catalog_id = result["host_catalog_id"]
-        tenant.boundary_host_set_id = result["host_set_id"]
-        await db.commit()
-        logger.info("Boundary project created for tenant %s: %s", tenant.id, result["project_id"])
-    except Exception:
-        logger.exception("Failed to create Boundary project for tenant %s", tenant.id)
-
-
 async def _discover_system_server(
     tenant: Tenant, api_url: str, client_id: str, secret: str, db: AsyncSession,
 ) -> dict:
@@ -824,8 +700,6 @@ async def _discover_system_server(
             await db.commit()
             # Auto-sync images and networks
             await _sync_cached_data(tenant, cloudwm, db)
-            # Auto-setup Boundary project for this tenant
-            await _ensure_boundary_project(tenant, db)
             return {
                 "discover_status": "found",
                 "system_server_id": server["id"],
@@ -948,8 +822,6 @@ async def select_system_server(
 
     # Auto-sync
     await _sync_cached_data(tenant, cloudwm, db)
-    # Auto-setup Boundary project
-    await _ensure_boundary_project(tenant, db)
 
     return {
         "system_server_id": server["id"],

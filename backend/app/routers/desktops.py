@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,10 +14,11 @@ from app.models.desktop import DesktopAssignment
 from app.models.session import Session
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.boundary import BoundaryClient
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import decrypt_value
+from app.services.guacamole import GuacamoleTokenService
 from app.services.power_manager import PowerManager
+from app.services.rdp_proxy import RDPProxyManager
 
 router = APIRouter()
 settings = get_settings()
@@ -34,14 +36,15 @@ class DesktopResponse(BaseModel):
 
 
 class ConnectResponse(BaseModel):
-    uri: str
     session_id: str
     desktop_name: str
+    connection_type: str
+    guacamole_token: str | None = None
+    guacamole_url: str | None = None
 
 
 class HeartbeatRequest(BaseModel):
     session_id: str
-    agent_version: str | None = None
 
 
 # ── Helpers ──
@@ -61,19 +64,6 @@ def _get_cloudwm(tenant: Tenant) -> CloudWMClient:
         client_id=tenant.cloudwm_client_id,
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
-
-
-async def _get_boundary() -> BoundaryClient:
-    client = BoundaryClient(
-        controller_url=settings.boundary_url,
-        tls_insecure=settings.boundary_tls_insecure,
-    )
-    await client.authenticate(
-        auth_method_id=settings.boundary_auth_method_id,
-        login_name=settings.boundary_admin_login,
-        password=settings.boundary_admin_password,
-    )
-    return client
 
 
 # ── Endpoints ──
@@ -128,7 +118,7 @@ async def connect_desktop(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Power on VM if needed, authorize Boundary session, return kamvdi:// URI."""
+    """Power on VM if needed, create Guacamole session token."""
     result = await db.execute(
         select(DesktopAssignment).where(
             DesktopAssignment.id == uuid.UUID(desktop_id),
@@ -140,8 +130,8 @@ async def connect_desktop(
     if not desktop:
         raise HTTPException(status_code=404, detail="Desktop not found")
 
-    if not desktop.boundary_target_id:
-        raise HTTPException(status_code=400, detail="Desktop not configured in Boundary")
+    if not desktop.vm_private_ip:
+        raise HTTPException(status_code=400, detail="Desktop has no IP address configured")
 
     tenant = await _get_tenant(db, user.tenant_id)
     cloudwm = _get_cloudwm(tenant)
@@ -160,36 +150,118 @@ async def connect_desktop(
     desktop.current_state = "on"
     desktop.last_state_check = datetime.utcnow()
 
-    # 2. Authorize Boundary session
-    boundary = await _get_boundary()
-    auth_token = await boundary.authorize_session(desktop.boundary_target_id)
+    # 2. Create Guacamole token
+    guac_service = GuacamoleTokenService(settings.guacamole_json_secret)
+    connection_name = f"kamvdi-{desktop.id}"
+
+    rdp_password = ""
+    if desktop.vm_rdp_password_encrypted:
+        rdp_password = decrypt_value(desktop.vm_rdp_password_encrypted)
+
+    token = guac_service.create_connection_token(
+        username=user.email,
+        connection_name=connection_name,
+        protocol="rdp",
+        parameters={
+            "hostname": desktop.vm_private_ip,
+            "port": "3389",
+            "username": desktop.vm_rdp_username or "Administrator",
+            "password": rdp_password,
+            "security": "any",
+            "ignore-cert": "true",
+            "resize-method": "display-update",
+            "enable-wallpaper": "true",
+        },
+        expires_minutes=tenant.max_session_hours * 60,
+    )
 
     # 3. Create session record
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
-        boundary_auth_token=auth_token,
+        connection_type="browser",
+        guacamole_connection_id=connection_name,
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
 
-    # 4. Return URI for agent with Boundary token and worker address
-    # Worker address must be the Boundary controller URL (agent uses it with -addr flag)
-    boundary_addr = settings.boundary_url.replace("boundary", settings.portal_domain)
-    kamvdi_uri = (
-        f"kamvdi://connect"
-        f"?token={auth_token}"
-        f"&worker={boundary_addr}"
-        f"&session={session.id}"
-        f"&name={desktop.display_name}"
-        f"&portal={settings.portal_url}"
-    )
-
     return ConnectResponse(
-        uri=kamvdi_uri,
         session_id=str(session.id),
         desktop_name=desktop.display_name,
+        connection_type="browser",
+        guacamole_token=token,
+        guacamole_url=settings.guacamole_public_path,
+    )
+
+
+@router.post("/{desktop_id}/rdp-file")
+async def download_rdp_file(
+    desktop_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Power on VM, start TCP proxy, return .rdp file for native RDP client."""
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.user_id == user.id,
+            DesktopAssignment.is_active == True,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    if not desktop.vm_private_ip:
+        raise HTTPException(status_code=400, detail="Desktop has no IP address configured")
+
+    tenant = await _get_tenant(db, user.tenant_id)
+    cloudwm = _get_cloudwm(tenant)
+
+    # 1. Power on VM if needed
+    power_mgr = PowerManager()
+    desktop.current_state = "starting"
+    await db.commit()
+
+    vm_ready = await power_mgr.ensure_vm_running(desktop, cloudwm)
+    if not vm_ready:
+        desktop.current_state = "unknown"
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Failed to start desktop")
+
+    desktop.current_state = "on"
+    desktop.last_state_check = datetime.utcnow()
+
+    # 2. Start socat proxy
+    proxy_mgr = RDPProxyManager()
+    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip)
+
+    # 3. Create session record
+    public_ip = settings.server_public_ip or settings.portal_domain
+    session = Session(
+        user_id=user.id,
+        desktop_id=desktop.id,
+        connection_type="native",
+        proxy_port=port,
+        proxy_pid=pid,
+    )
+    db.add(session)
+    await db.commit()
+
+    # 4. Generate and return .rdp file
+    rdp_content = proxy_mgr.generate_rdp_file(
+        hostname=public_ip,
+        port=port,
+        username=desktop.vm_rdp_username or "Administrator",
+        display_name=desktop.display_name,
+    )
+
+    filename = f"{desktop.display_name.replace(' ', '_')}.rdp"
+    return Response(
+        content=rdp_content,
+        media_type="application/x-rdp",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -214,9 +286,10 @@ async def disconnect_desktop(
     session.ended_at = datetime.utcnow()
     session.end_reason = "user_disconnect"
 
-    if session.boundary_session_id:
-        boundary = await _get_boundary()
-        await boundary.cancel_session(session.boundary_session_id)
+    # Clean up TCP proxy if this was a native session
+    if session.proxy_pid:
+        proxy_mgr = RDPProxyManager()
+        await proxy_mgr.stop_proxy(session.proxy_pid)
 
     await db.commit()
     return {"message": "Disconnected"}
@@ -228,7 +301,7 @@ async def heartbeat(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Agent sends heartbeat every 60 seconds to keep session alive."""
+    """Browser sends heartbeat every 60 seconds to keep session alive."""
     result = await db.execute(
         select(Session).where(
             Session.id == uuid.UUID(req.session_id),
@@ -241,7 +314,5 @@ async def heartbeat(
         raise HTTPException(status_code=404, detail="Session not found or ended")
 
     session.last_heartbeat = datetime.utcnow()
-    if req.agent_version:
-        session.agent_version = req.agent_version
     await db.commit()
     return {"status": "ok"}

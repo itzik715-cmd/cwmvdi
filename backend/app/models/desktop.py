@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,8 @@ class DesktopAssignment(Base):
     current_state: Mapped[str] = mapped_column(String(20), default="unknown")
     # states: on | off | suspended | starting | suspending | unknown
     last_state_check: Mapped[datetime | None] = mapped_column(DateTime)
+    vm_rdp_username: Mapped[str | None] = mapped_column(String(100))
+    vm_rdp_password_encrypted: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

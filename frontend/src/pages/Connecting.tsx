@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSession } from "../hooks/useSession";
+import { desktopsApi } from "../services/api";
 import type { User } from "../types";
 
 interface Props {
@@ -10,8 +11,10 @@ interface Props {
 export default function Connecting({ user }: Props) {
   const { desktopId } = useParams<{ desktopId: string }>();
   const navigate = useNavigate();
-  const { connect, connecting, error, result } = useSession();
-  const [phase, setPhase] = useState<"starting" | "tunneling" | "launching" | "done" | "error">("starting");
+  const { connect, error, result } = useSession();
+  const [phase, setPhase] = useState<"starting" | "auth" | "connected" | "error">("starting");
+  const [guacClientUrl, setGuacClientUrl] = useState<string | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!desktopId) return;
@@ -19,83 +22,146 @@ export default function Connecting({ user }: Props) {
     const run = async () => {
       try {
         setPhase("starting");
-        // This call powers on the VM, authorizes Boundary, and returns the URI
-        await connect(desktopId);
-        setPhase("launching");
+        const data = await connect(desktopId);
+        if (!data?.guacamole_token) {
+          setPhase("error");
+          return;
+        }
 
-        // Give time for the agent to pick up the URI
-        setTimeout(() => {
-          setPhase("done");
-          setTimeout(() => navigate("/"), 3000);
-        }, 3000);
+        // Exchange encrypted JSON token for Guacamole auth token
+        setPhase("auth");
+        const formData = new URLSearchParams();
+        formData.append("data", data.guacamole_token);
+
+        const tokenResp = await fetch(`${data.guacamole_url}/api/tokens`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!tokenResp.ok) {
+          throw new Error("Guacamole authentication failed");
+        }
+
+        const tokenData = await tokenResp.json();
+        const authToken = tokenData.authToken;
+
+        // Build the connection client identifier
+        // Guacamole format: BASE64(connectionName + \0 + c + \0 + json)
+        const connectionName = `kamvdi-${desktopId}`;
+        const clientId = btoa(`${connectionName}\0c\0json`);
+
+        const url = `${data.guacamole_url}/#/client/${encodeURIComponent(clientId)}?token=${encodeURIComponent(authToken)}`;
+        setGuacClientUrl(url);
+        setPhase("connected");
+
+        // Start heartbeat
+        heartbeatRef.current = setInterval(() => {
+          desktopsApi.heartbeat(data.session_id).catch(() => {});
+        }, 60_000);
       } catch {
         setPhase("error");
       }
     };
 
     run();
+
+    return () => {
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    };
   }, [desktopId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const messages = {
-    starting: "Starting your desktop...",
-    tunneling: "Establishing secure tunnel...",
-    launching: "Opening RDP client...",
-    done: "Connected! Redirecting to dashboard...",
-    error: "Connection failed",
+  const handleDisconnect = async () => {
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    if (desktopId) {
+      await desktopsApi.disconnect(desktopId).catch(() => {});
+    }
+    navigate("/");
   };
 
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 24,
-      }}
-    >
-      {phase !== "error" && phase !== "done" && <div className="spinner" />}
-
-      {phase === "done" && (
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: "rgba(34,197,94,0.15)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 32,
-          }}
-        >
-          &#10003;
-        </div>
-      )}
-
-      <h2 style={{ fontSize: 20 }}>{messages[phase]}</h2>
-
-      {phase === "starting" && (
+  if (phase === "starting" || phase === "auth") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 24,
+        }}
+      >
+        <div className="spinner" />
+        <h2 style={{ fontSize: 20 }}>
+          {phase === "starting" ? "Starting your desktop..." : "Connecting to remote session..."}
+        </h2>
         <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
           This may take up to 3 minutes if your desktop was off.
         </p>
-      )}
+      </div>
+    );
+  }
 
-      {error && (
-        <div style={{ textAlign: "center" }}>
-          <p className="error-msg" style={{ fontSize: 15, marginBottom: 16 }}>{error}</p>
-          <button className="btn-primary" onClick={() => navigate("/")}>
-            Back to Dashboard
-          </button>
-        </div>
-      )}
+  if (phase === "error") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 20 }}>Connection failed</h2>
+        <p className="error-msg" style={{ fontSize: 15, marginBottom: 16 }}>{error || "Unknown error"}</p>
+        <button className="btn-primary" onClick={() => navigate("/")}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
 
-      {result && phase === "launching" && (
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Session: {result.session_id.slice(0, 8)}...
-        </p>
-      )}
+  // Connected — show Guacamole iframe
+  return (
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* Header bar */}
+      <div
+        style={{
+          height: 44,
+          background: "#1a1a2e",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 16px",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 500 }}>
+          {result?.desktop_name || "Remote Desktop"}
+        </span>
+        <button
+          onClick={handleDisconnect}
+          style={{
+            background: "#dc2626",
+            color: "#fff",
+            border: "none",
+            padding: "6px 16px",
+            borderRadius: 6,
+            fontSize: 13,
+            cursor: "pointer",
+          }}
+        >
+          Disconnect
+        </button>
+      </div>
+      {/* Guacamole iframe */}
+      <iframe
+        src={guacClientUrl || ""}
+        style={{ flex: 1, width: "100%", border: "none" }}
+        allow="clipboard-read; clipboard-write"
+        title="Remote Desktop"
+      />
     </div>
   );
 }

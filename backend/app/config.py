@@ -17,13 +17,11 @@ class Settings(BaseSettings):
     # Encryption key for storing secrets (CloudWM API secret, etc.)
     encryption_key: str = "changeme-generate-with-openssl-rand-hex-32"
 
-    # Boundary
-    boundary_url: str = "http://boundary:9200"
-    boundary_auth_method_id: str = ""
-    boundary_admin_login: str = "admin"
-    boundary_admin_password: str = "changeme"
-    boundary_tls_insecure: bool = True
-    boundary_org_id: str = ""
+    # Guacamole
+    guacamole_json_secret: str = ""
+    guacamole_url: str = "http://guacamole:8080/guacamole"
+    guacamole_public_path: str = "/guacamole"
+    server_public_ip: str = ""
 
     # CloudWM defaults
     cloudwm_api_url: str = "https://console.clubvps.com/service"

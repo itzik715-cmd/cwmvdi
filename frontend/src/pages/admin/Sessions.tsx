@@ -49,7 +49,7 @@ export default function Sessions() {
               <th>Desktop</th>
               <th>Started</th>
               <th>Last Heartbeat</th>
-              <th>Agent</th>
+              <th>Type</th>
               <th></th>
             </tr>
           </thead>
@@ -68,7 +68,7 @@ export default function Sessions() {
                   {timeSince(s.last_heartbeat)}
                 </td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  {s.agent_version || "—"}
+                  {s.connection_type === "native" ? "Native RDP" : "Browser"}
                 </td>
                 <td>
                   <button

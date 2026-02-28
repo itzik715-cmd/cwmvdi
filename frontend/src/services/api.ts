@@ -34,6 +34,8 @@ export const desktopsApi = {
   disconnect: (id: string) => api.post(`/desktops/${id}/disconnect`),
   heartbeat: (sessionId: string) =>
     api.post("/desktops/heartbeat", { session_id: sessionId }),
+  downloadRDPFile: (id: string) =>
+    api.post(`/desktops/${id}/rdp-file`, null, { responseType: "blob" }),
 };
 
 // ── Admin APIs ──
@@ -58,7 +60,6 @@ export const adminApi = {
   updateDesktop: (id: string, data: { user_id: string | null }) =>
     api.patch(`/admin/desktops/${id}`, data),
   deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
-  setupBoundary: (id: string) => api.post(`/admin/desktops/${id}/setup-boundary`),
 
   getImages: () => api.get("/admin/images"),
   getNetworks: () => api.get("/admin/networks"),

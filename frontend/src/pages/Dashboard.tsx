@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { useDesktops } from "../hooks/useDesktops";
 import DesktopCard from "../components/DesktopCard";
-import AgentDownload from "../components/AgentDownload";
 import type { User } from "../types";
 
 interface Props {
@@ -35,8 +34,6 @@ export default function Dashboard({ user, onLogout }: Props) {
           </button>
         </div>
       </div>
-
-      <AgentDownload />
 
       {/* Content */}
       {loading && (

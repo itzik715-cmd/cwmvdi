@@ -15,10 +15,6 @@ export function useSession() {
       const res = await desktopsApi.connect(desktopId);
       const data: ConnectResult = res.data;
       setResult(data);
-
-      // Trigger the agent via custom URI scheme
-      window.location.href = data.uri;
-
       return data;
     } catch (err: any) {
       const msg = err.response?.data?.detail || "Connection failed";
