@@ -146,6 +146,11 @@ export default function Desktops() {
     fetchDesktops();
   };
 
+  const handleActivate = async (id: string) => {
+    await adminApi.activateDesktop(id);
+    fetchDesktops();
+  };
+
   const openAssignModal = (desktop: AdminDesktop) => {
     setAssignDesktop(desktop);
     setAssignUserId(desktop.user_id || "");
@@ -267,13 +272,21 @@ export default function Desktops() {
                   )}
                 </td>
                 <td>
-                  {d.is_active && (
+                  {d.is_active ? (
                     <button
                       className="btn-danger"
                       style={{ padding: "4px 12px", fontSize: 12 }}
                       onClick={() => handleDelete(d.id)}
                     >
                       Deactivate
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      style={{ padding: "4px 12px", fontSize: 12 }}
+                      onClick={() => handleActivate(d.id)}
+                    >
+                      Activate
                     </button>
                   )}
                 </td>

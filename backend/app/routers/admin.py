@@ -269,8 +269,8 @@ async def list_unregistered_servers(
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
 
-    # Get all servers from Kamatera
-    all_servers = await cloudwm.list_servers()
+    # Get all servers with datacenter info
+    all_servers = await cloudwm.list_servers_runtime()
 
     # Get all registered server IDs
     result = await db.execute(
@@ -283,6 +283,9 @@ async def list_unregistered_servers(
     if tenant.system_server_id:
         registered_ids.add(tenant.system_server_id)
 
+    # Filter by locked datacenter if set
+    locked_dc = tenant.locked_datacenter
+
     return [
         {
             "id": s["id"],
@@ -291,6 +294,7 @@ async def list_unregistered_servers(
         }
         for s in all_servers
         if s["id"] not in registered_ids
+        and (not locked_dc or s.get("datacenter", "") == locked_dc)
     ]
 
 
@@ -641,6 +645,27 @@ async def delete_desktop(
     desktop.is_active = False
     await db.commit()
     return {"message": "Desktop deactivated"}
+
+
+@router.post("/desktops/{desktop_id}/activate")
+async def activate_desktop(
+    desktop_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    desktop.is_active = True
+    await db.commit()
+    return {"message": "Desktop activated"}
 
 
 # ── Sessions ──
