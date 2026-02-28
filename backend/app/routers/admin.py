@@ -734,6 +734,72 @@ async def activate_desktop(
     return {"message": "Desktop activated"}
 
 
+class PowerActionRequest(BaseModel):
+    action: str  # suspend | resume | power_on | power_off | restart
+
+
+@router.post("/desktops/{desktop_id}/power")
+async def desktop_power_action(
+    desktop_id: str,
+    req: PowerActionRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual power control for a desktop VM."""
+    valid_actions = ("suspend", "resume", "power_on", "power_off", "restart")
+    if req.action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"Invalid action. Must be one of: {', '.join(valid_actions)}")
+
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == admin.tenant_id))).scalar_one()
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+
+    try:
+        if req.action == "suspend":
+            await cloudwm.suspend(desktop.cloudwm_server_id)
+            desktop.current_state = "suspended"
+        elif req.action == "resume":
+            await cloudwm.resume(desktop.cloudwm_server_id)
+            desktop.current_state = "on"
+        elif req.action == "power_on":
+            await cloudwm.power_on(desktop.cloudwm_server_id)
+            desktop.current_state = "on"
+        elif req.action == "power_off":
+            await cloudwm.power_off(desktop.cloudwm_server_id)
+            desktop.current_state = "off"
+        elif req.action == "restart":
+            async with await cloudwm._get_client() as client:
+                headers = await cloudwm._auth_headers()
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                resp = await client.put(
+                    f"{cloudwm.base_url}/server/{desktop.cloudwm_server_id}/power",
+                    headers=headers,
+                    content="power=restart",
+                )
+                resp.raise_for_status()
+            desktop.current_state = "on"
+    except Exception as e:
+        logger.exception("Power action %s failed for %s", req.action, desktop.cloudwm_server_id)
+        raise HTTPException(status_code=502, detail=f"Power action failed: {str(e)}")
+
+    desktop.last_state_check = datetime.utcnow()
+    await db.commit()
+    return {"message": f"Power action '{req.action}' executed", "state": desktop.current_state}
+
+
 # ── Sessions ──
 
 

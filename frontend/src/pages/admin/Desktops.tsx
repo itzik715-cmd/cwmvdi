@@ -177,6 +177,15 @@ export default function Desktops() {
     fetchDesktops();
   };
 
+  const handlePower = async (id: string, action: string) => {
+    try {
+      await adminApi.desktopPower(id, action);
+      fetchDesktops();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || `Power action '${action}' failed`);
+    }
+  };
+
   const openAssignModal = (desktop: AdminDesktop) => {
     setAssignDesktop(desktop);
     setAssignUserId(desktop.user_id || "");
@@ -269,9 +278,9 @@ export default function Desktops() {
               <th>Name</th>
               <th>User</th>
               <th>Status</th>
-              <th>Server ID</th>
               <th>Connection</th>
-              <th></th>
+              <th>Power</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -287,7 +296,6 @@ export default function Desktops() {
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>&#9998;</span>
                 </td>
                 <td><StatusBadge state={d.current_state} /></td>
-                <td style={{ fontSize: 13, color: "var(--text-muted)" }}>{d.cloudwm_server_id}</td>
                 <td style={{ fontSize: 13 }}>
                   {d.vm_private_ip ? (
                     <span style={{ color: "var(--success)" }}>{d.vm_private_ip}</span>
@@ -297,47 +305,65 @@ export default function Desktops() {
                     <span style={{ color: "var(--text-muted)" }}>Pending</span>
                   )}
                 </td>
-                <td style={{ display: "flex", gap: 6 }}>
-                  {d.is_active ? (
-                    <>
+                <td>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {d.current_state === "on" && (
+                      <>
+                        <button
+                          style={{ padding: "3px 8px", fontSize: 11, background: "#f59e0b", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                          onClick={() => handlePower(d.id, "suspend")}
+                          title="Suspend"
+                        >Suspend</button>
+                        <button
+                          style={{ padding: "3px 8px", fontSize: 11, background: "#6b7280", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                          onClick={() => handlePower(d.id, "power_off")}
+                          title="Power Off"
+                        >Power Off</button>
+                        <button
+                          style={{ padding: "3px 8px", fontSize: 11, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                          onClick={() => handlePower(d.id, "restart")}
+                          title="Restart"
+                        >Restart</button>
+                      </>
+                    )}
+                    {d.current_state === "suspended" && (
                       <button
-                        style={{ padding: "4px 10px", fontSize: 12, background: "#6b7280", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}
-                        onClick={() => handleUnregister(d.id)}
-                      >
-                        Unregister
-                      </button>
+                        style={{ padding: "3px 8px", fontSize: 11, background: "#22c55e", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                        onClick={() => handlePower(d.id, "resume")}
+                        title="Resume"
+                      >Resume</button>
+                    )}
+                    {d.current_state === "off" && (
                       <button
-                        className="btn-danger"
-                        style={{ padding: "4px 10px", fontSize: 12 }}
-                        onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
-                      >
-                        Terminate
-                      </button>
-                    </>
-                  ) : (
-                    <>
+                        style={{ padding: "3px 8px", fontSize: 11, background: "#22c55e", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                        onClick={() => handlePower(d.id, "power_on")}
+                        title="Power On"
+                      >Power On</button>
+                    )}
+                    {!["on", "off", "suspended"].includes(d.current_state) && (
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>—</span>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {!d.is_active && (
                       <button
                         className="btn-primary"
-                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        style={{ padding: "3px 8px", fontSize: 11 }}
                         onClick={() => handleActivate(d.id)}
-                      >
-                        Activate
-                      </button>
-                      <button
-                        style={{ padding: "4px 10px", fontSize: 12, background: "#6b7280", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}
-                        onClick={() => handleUnregister(d.id)}
-                      >
-                        Unregister
-                      </button>
-                      <button
-                        className="btn-danger"
-                        style={{ padding: "4px 10px", fontSize: 12 }}
-                        onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
-                      >
-                        Terminate
-                      </button>
-                    </>
-                  )}
+                      >Activate</button>
+                    )}
+                    <button
+                      style={{ padding: "3px 8px", fontSize: 11, background: "#6b7280", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                      onClick={() => handleUnregister(d.id)}
+                    >Unregister</button>
+                    <button
+                      className="btn-danger"
+                      style={{ padding: "3px 8px", fontSize: 11 }}
+                      onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
+                    >Terminate</button>
+                  </div>
                 </td>
               </tr>
             ))}

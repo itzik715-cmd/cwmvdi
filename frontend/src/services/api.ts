@@ -63,6 +63,8 @@ export const adminApi = {
   terminateDesktop: (id: string, mfa_code: string) =>
     api.post(`/admin/desktops/${id}/terminate`, { mfa_code }),
   activateDesktop: (id: string) => api.post(`/admin/desktops/${id}/activate`),
+  desktopPower: (id: string, action: string) =>
+    api.post(`/admin/desktops/${id}/power`, { action }),
   getUnregisteredServers: () => api.get("/admin/unregistered-servers"),
   importServer: (data: {
     server_id: string;
