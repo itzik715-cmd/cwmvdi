@@ -195,10 +195,30 @@ BOUNDARY_LOGIN_NAME=${BOUNDARY_LOGIN_NAME:-admin}
 if [[ -n "$BOUNDARY_AUTH_METHOD_ID" ]]; then
   log "Boundary initialized (auth_method: ${BOUNDARY_AUTH_METHOD_ID}, org: ${BOUNDARY_ORG_ID})"
 
+  # Reset the Boundary admin password to something safe (no special chars)
+  BOUNDARY_SAFE_PASSWORD=$(openssl rand -hex 16)
+  BOUNDARY_ACCT_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Account ID:" | head -1 | awk '{print $NF}')
+
+  if [[ -n "$BOUNDARY_ACCT_ID" ]]; then
+    docker run --rm \
+      --network "$(basename $(pwd))_default" \
+      -v "$(pwd)/boundary/config.hcl:/boundary/config.hcl:ro" \
+      -e BOUNDARY_POSTGRES_URL="postgresql://kamvdi:${PG_PASS}@postgres:5432/boundary?sslmode=disable" \
+      -e NEWPW="${BOUNDARY_SAFE_PASSWORD}" \
+      hashicorp/boundary:0.16 accounts set-password \
+        -id "${BOUNDARY_ACCT_ID}" \
+        -password "env://NEWPW" \
+        -recovery-config /boundary/config.hcl > /dev/null 2>&1 && \
+      log "Boundary admin password reset" || \
+      BOUNDARY_SAFE_PASSWORD="${BOUNDARY_GEN_PASSWORD}"
+  else
+    BOUNDARY_SAFE_PASSWORD="${BOUNDARY_GEN_PASSWORD}"
+  fi
+
   # Update .env with the generated Boundary values
   sed -i "s|^BOUNDARY_AUTH_METHOD_ID=.*|BOUNDARY_AUTH_METHOD_ID=${BOUNDARY_AUTH_METHOD_ID}|" .env
   sed -i "s|^BOUNDARY_ADMIN_LOGIN=.*|BOUNDARY_ADMIN_LOGIN=${BOUNDARY_LOGIN_NAME}|" .env
-  sed -i "s|^BOUNDARY_ADMIN_PASSWORD=.*|BOUNDARY_ADMIN_PASSWORD=${BOUNDARY_GEN_PASSWORD}|" .env
+  sed -i "s|^BOUNDARY_ADMIN_PASSWORD=.*|BOUNDARY_ADMIN_PASSWORD=${BOUNDARY_SAFE_PASSWORD}|" .env
   sed -i "s|^BOUNDARY_ORG_ID=.*|BOUNDARY_ORG_ID=${BOUNDARY_ORG_ID}|" .env
 else
   warn "Could not parse Boundary init output. Boundary proxy may need manual setup."
@@ -213,8 +233,9 @@ sleep 5
 log "Initializing database..."
 docker compose exec -T backend python -m alembic upgrade head
 
-# Restart backend so it picks up the Boundary env vars
-docker compose restart backend celery
+# Recreate backend & celery so they pick up the new Boundary env vars
+# (docker compose restart does NOT reload .env — must recreate)
+docker compose up -d --force-recreate backend celery
 sleep 5
 
 # ── First Admin ────────────────────────────────────────────
