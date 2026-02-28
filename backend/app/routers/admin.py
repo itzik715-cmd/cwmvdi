@@ -19,6 +19,7 @@ from app.models.user import User
 from app.services.auth import hash_password
 from app.services.cloudwm import CloudWMClient
 from app.services.encryption import encrypt_value, decrypt_value
+from app.services.mfa import verify_totp
 
 logger = logging.getLogger(__name__)
 
@@ -627,11 +628,12 @@ async def update_desktop(
 
 
 @router.delete("/desktops/{desktop_id}")
-async def delete_desktop(
+async def unregister_desktop(
     desktop_id: str,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    """Remove a desktop from the VDI system without terminating the server."""
     result = await db.execute(
         select(DesktopAssignment).where(
             DesktopAssignment.id == uuid.UUID(desktop_id),
@@ -642,9 +644,75 @@ async def delete_desktop(
     if not desktop:
         raise HTTPException(status_code=404, detail="Desktop not found")
 
-    desktop.is_active = False
+    # End any active sessions
+    active_sessions = await db.execute(
+        select(Session).where(Session.desktop_id == desktop.id, Session.ended_at == None)
+    )
+    for s in active_sessions.scalars().all():
+        s.ended_at = datetime.utcnow()
+        s.end_reason = "admin_unregister"
+
+    await db.delete(desktop)
     await db.commit()
-    return {"message": "Desktop deactivated"}
+    return {"message": "Desktop unregistered"}
+
+
+class TerminateDesktopRequest(BaseModel):
+    mfa_code: str
+
+
+@router.post("/desktops/{desktop_id}/terminate")
+async def terminate_desktop(
+    desktop_id: str,
+    req: TerminateDesktopRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Terminate (destroy) the server and remove the desktop. Requires MFA."""
+    # Verify admin has MFA enabled
+    if not admin.mfa_enabled or not admin.mfa_secret:
+        raise HTTPException(status_code=403, detail="MFA must be enabled to terminate servers")
+
+    # Verify MFA code
+    if not verify_totp(admin.mfa_secret, req.mfa_code):
+        raise HTTPException(status_code=403, detail="Invalid MFA code")
+
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    # Terminate the server via CloudWM
+    tenant = await db.execute(select(Tenant).where(Tenant.id == admin.tenant_id))
+    tenant = tenant.scalar_one()
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+    try:
+        await cloudwm.terminate_server(desktop.cloudwm_server_id)
+        logger.info("Terminated server %s for desktop %s", desktop.cloudwm_server_id, desktop.display_name)
+    except Exception as e:
+        logger.exception("Failed to terminate server %s", desktop.cloudwm_server_id)
+        raise HTTPException(status_code=502, detail=f"Failed to terminate server: {str(e)}")
+
+    # End any active sessions
+    active_sessions = await db.execute(
+        select(Session).where(Session.desktop_id == desktop.id, Session.ended_at == None)
+    )
+    for s in active_sessions.scalars().all():
+        s.ended_at = datetime.utcnow()
+        s.end_reason = "admin_terminate"
+
+    await db.delete(desktop)
+    await db.commit()
+    return {"message": "Server terminated and desktop removed"}
 
 
 @router.post("/desktops/{desktop_id}/activate")

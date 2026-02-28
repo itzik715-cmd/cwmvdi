@@ -43,6 +43,12 @@ export default function Desktops() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
+  // Terminate modal state
+  const [terminateDesktop, setTerminateDesktop] = useState<AdminDesktop | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [terminateError, setTerminateError] = useState<string | null>(null);
+  const [terminating, setTerminating] = useState(false);
+
   const fetchDesktops = () => {
     adminApi.listDesktops().then((res) => setDesktops(res.data));
   };
@@ -140,10 +146,30 @@ export default function Desktops() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Deactivate this desktop?")) return;
-    await adminApi.deleteDesktop(id);
-    fetchDesktops();
+  const handleUnregister = async (id: string) => {
+    if (!confirm("Remove this desktop from the VDI system? The server will NOT be deleted.")) return;
+    try {
+      await adminApi.unregisterDesktop(id);
+      fetchDesktops();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to unregister");
+    }
+  };
+
+  const handleTerminate = async () => {
+    if (!terminateDesktop) return;
+    setTerminating(true);
+    setTerminateError(null);
+    try {
+      await adminApi.terminateDesktop(terminateDesktop.id, mfaCode);
+      setTerminateDesktop(null);
+      setMfaCode("");
+      fetchDesktops();
+    } catch (err: any) {
+      setTerminateError(err.response?.data?.detail || "Failed to terminate");
+    } finally {
+      setTerminating(false);
+    }
   };
 
   const handleActivate = async (id: string) => {
@@ -271,23 +297,46 @@ export default function Desktops() {
                     <span style={{ color: "var(--text-muted)" }}>Pending</span>
                   )}
                 </td>
-                <td>
+                <td style={{ display: "flex", gap: 6 }}>
                   {d.is_active ? (
-                    <button
-                      className="btn-danger"
-                      style={{ padding: "4px 12px", fontSize: 12 }}
-                      onClick={() => handleDelete(d.id)}
-                    >
-                      Deactivate
-                    </button>
+                    <>
+                      <button
+                        style={{ padding: "4px 10px", fontSize: 12, background: "#6b7280", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}
+                        onClick={() => handleUnregister(d.id)}
+                      >
+                        Unregister
+                      </button>
+                      <button
+                        className="btn-danger"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
+                      >
+                        Terminate
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      className="btn-primary"
-                      style={{ padding: "4px 12px", fontSize: 12 }}
-                      onClick={() => handleActivate(d.id)}
-                    >
-                      Activate
-                    </button>
+                    <>
+                      <button
+                        className="btn-primary"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => handleActivate(d.id)}
+                      >
+                        Activate
+                      </button>
+                      <button
+                        style={{ padding: "4px 10px", fontSize: 12, background: "#6b7280", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}
+                        onClick={() => handleUnregister(d.id)}
+                      >
+                        Unregister
+                      </button>
+                      <button
+                        className="btn-danger"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
+                      >
+                        Terminate
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -597,6 +646,53 @@ export default function Desktops() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Terminate Desktop Modal (MFA required) */}
+      {terminateDesktop && (
+        <div className="modal-overlay" onClick={() => setTerminateDesktop(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ color: "var(--danger)" }}>Terminate Server</h2>
+            <p style={{ fontSize: 14, marginBottom: 8 }}>
+              This will <strong>permanently destroy</strong> the server:
+            </p>
+            <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>
+              {terminateDesktop.display_name}
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+              Server ID: {terminateDesktop.cloudwm_server_id}
+            </p>
+            <p style={{ fontSize: 13, color: "var(--danger)", marginBottom: 16 }}>
+              This action cannot be undone. All data on this server will be lost.
+            </p>
+            <div className="form-group">
+              <label>Enter your MFA code to confirm</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="6-digit code"
+                style={{ letterSpacing: 8, fontSize: 20, textAlign: "center" }}
+                autoFocus
+              />
+            </div>
+            {terminateError && <p className="error-msg">{terminateError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="btn-ghost" onClick={() => setTerminateDesktop(null)}>Cancel</button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={handleTerminate}
+                disabled={terminating || mfaCode.length !== 6}
+              >
+                {terminating ? "Terminating..." : "Terminate Server"}
+              </button>
+            </div>
           </div>
         </div>
       )}

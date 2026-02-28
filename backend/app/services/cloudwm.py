@@ -192,6 +192,16 @@ class CloudWMClient:
             logger.warning("Resume not supported for %s, falling back to power on", server_id)
             return await self.power_on(server_id)
 
+    async def terminate_server(self, server_id: str) -> dict:
+        """DELETE /server/{server_id} — permanently terminate and delete a server."""
+        async with await self._get_client() as client:
+            resp = await client.delete(
+                f"{self.base_url}/server/{server_id}",
+                headers=await self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def wait_until_ready(self, server_id: str, timeout: int = 180) -> bool:
         """Poll every 5 seconds until the server is 'on'. Returns False on timeout."""
         start = time.time()

@@ -59,7 +59,9 @@ export const adminApi = {
   }) => api.post("/admin/desktops", data),
   updateDesktop: (id: string, data: { user_id: string | null }) =>
     api.patch(`/admin/desktops/${id}`, data),
-  deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
+  unregisterDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
+  terminateDesktop: (id: string, mfa_code: string) =>
+    api.post(`/admin/desktops/${id}/terminate`, { mfa_code }),
   activateDesktop: (id: string) => api.post(`/admin/desktops/${id}/activate`),
   getUnregisteredServers: () => api.get("/admin/unregistered-servers"),
   importServer: (data: {
