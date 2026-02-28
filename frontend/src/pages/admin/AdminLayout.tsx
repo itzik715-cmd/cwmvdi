@@ -36,7 +36,7 @@ export default function AdminLayout({ user, onLogout }: Props) {
             style={{ fontSize: 18, fontWeight: 800, cursor: "pointer" }}
             onClick={() => navigate("/")}
           >
-            KamVDI
+            CwmVDI
           </h2>
           <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
             Admin Panel

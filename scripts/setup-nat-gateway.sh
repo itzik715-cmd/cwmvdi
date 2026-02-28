@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# ── KamVDI NAT Gateway Setup ─────────────────────────────────────
+# ── CwmVDI NAT Gateway Setup ─────────────────────────────────────
 # Configures this server as a NAT gateway so Windows VMs on the
 # private VLAN can route all internet traffic through it.
 #
@@ -72,8 +72,8 @@ else
 fi
 
 # Also set in sysctl.d for robustness
-cat > /etc/sysctl.d/99-kamvdi-nat.conf << 'EOF'
-# KamVDI NAT Gateway - enable IP forwarding
+cat > /etc/sysctl.d/99-cwmvdi-nat.conf << 'EOF'
+# CwmVDI NAT Gateway - enable IP forwarding
 net.ipv4.ip_forward = 1
 EOF
 
@@ -120,9 +120,9 @@ mkdir -p /etc/iptables
 iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 
 # Also create a systemd service to restore rules on boot
-cat > /etc/systemd/system/kamvdi-nat.service << 'UNIT'
+cat > /etc/systemd/system/cwmvdi-nat.service << 'UNIT'
 [Unit]
-Description=KamVDI NAT Gateway Rules
+Description=CwmVDI NAT Gateway Rules
 After=network-pre.target
 Before=network.target docker.service
 
@@ -137,7 +137,7 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable kamvdi-nat.service > /dev/null 2>&1
+systemctl enable cwmvdi-nat.service > /dev/null 2>&1
 log "NAT rules will persist across reboots"
 
 # ── Summary ───────────────────────────────────────────────────────

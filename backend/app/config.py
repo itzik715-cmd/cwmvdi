@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql+asyncpg://kamvdi:changeme@localhost:5432/kamvdi"
+    database_url: str = "postgresql+asyncpg://cwmvdi:changeme@localhost:5432/cwmvdi"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     default_max_session_hours: int = 8
 
     # Admin bootstrap
-    admin_email: str = "admin@kamvdi.io"
+    admin_email: str = "admin@cwmvdi.io"
     admin_password: str = "changeme"
 
     # Rate limiting

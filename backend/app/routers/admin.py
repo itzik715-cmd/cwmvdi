@@ -42,7 +42,7 @@ class CreateDesktopRequest(BaseModel):
     cpu: str = "2B"
     ram: int = 4096
     disk_size: int = 50
-    password: str = "KamVDI2026Desk!"
+    password: str = "CwmVDI2026Desk!"
     network_name: str | None = None  # None = use tenant default (private VLAN if NAT enabled)
 
 
@@ -329,7 +329,7 @@ async def create_desktop(
     except Exception:
         account_id = tenant.slug
 
-    vm_name = f"kamvdi-{account_id}-{req.display_name.lower().replace(' ', '-')}"
+    vm_name = f"cwmvdi-{account_id}-{req.display_name.lower().replace(' ', '-')}"
 
     # Get the traffic package ID for this datacenter
     traffic_id = await cloudwm.get_traffic_id(datacenter)
@@ -674,13 +674,13 @@ async def test_cloudwm_connection(
 async def _discover_system_server(
     tenant: Tenant, api_url: str, client_id: str, secret: str, db: AsyncSession,
 ) -> dict:
-    """Discover servers tagged kamvdi-{userId} via /svc/serversRuntime."""
+    """Discover servers tagged cwmvdi-{userId} via /svc/serversRuntime."""
     try:
         cloudwm = CloudWMClient(api_url=api_url, client_id=client_id, secret=secret)
 
         # Get the account userId to build the expected tag
         account_id = await cloudwm.get_account_user_id()
-        expected_tag = f"kamvdi-{account_id}"
+        expected_tag = f"cwmvdi-{account_id}"
 
         # Use /svc/serversRuntime to get servers with tags
         matches = await cloudwm.find_servers_by_tag(expected_tag)
@@ -770,7 +770,7 @@ async def discover_system_server(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Discover kamvdi-* servers in Kamatera."""
+    """Discover cwmvdi-* servers in Kamatera."""
     tenant = await _get_tenant(db, admin.tenant_id)
     if not tenant.cloudwm_client_id:
         raise HTTPException(status_code=400, detail="CloudWM API not configured")
@@ -795,7 +795,7 @@ async def select_system_server(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Select a specific kamvdi-* server when multiple matches found."""
+    """Select a specific cwmvdi-* server when multiple matches found."""
     tenant = await _get_tenant(db, admin.tenant_id)
     if not tenant.cloudwm_client_id:
         raise HTTPException(status_code=400, detail="CloudWM API not configured")
@@ -806,9 +806,9 @@ async def select_system_server(
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
 
-    # Verify the server exists and has a kamvdi- tag
+    # Verify the server exists and has a cwmvdi- tag
     account_id = await cloudwm.get_account_user_id()
-    expected_tag = f"kamvdi-{account_id}"
+    expected_tag = f"cwmvdi-{account_id}"
     matches = await cloudwm.find_servers_by_tag(expected_tag)
     server = next((s for s in matches if s["id"] == req.server_id), None)
     if not server:

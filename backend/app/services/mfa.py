@@ -10,7 +10,7 @@ def generate_mfa_secret() -> str:
     return pyotp.random_base32()
 
 
-def get_totp_uri(secret: str, email: str, issuer: str = "KamVDI") -> str:
+def get_totp_uri(secret: str, email: str, issuer: str = "CwmVDI") -> str:
     """Generate a TOTP provisioning URI for QR code scanning."""
     totp = pyotp.TOTP(secret)
     return totp.provisioning_uri(name=email, issuer_name=issuer)

@@ -152,7 +152,7 @@ async def connect_desktop(
 
     # 2. Create Guacamole token
     guac_service = GuacamoleTokenService(settings.guacamole_json_secret)
-    connection_name = f"kamvdi-{desktop.id}"
+    connection_name = f"cwmvdi-{desktop.id}"
 
     rdp_password = ""
     if desktop.vm_rdp_password_encrypted:

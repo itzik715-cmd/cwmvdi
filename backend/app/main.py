@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="KamVDI API",
+    title="CwmVDI API",
     description="Virtual Desktop Infrastructure for Kamatera CloudWM",
     version="1.0.0",
     lifespan=lifespan,

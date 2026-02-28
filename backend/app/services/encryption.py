@@ -13,7 +13,7 @@ def _get_fernet() -> Fernet:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"kamvdi-encryption-salt",
+        salt=b"cwmvdi-encryption-salt",
         iterations=100_000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(key_material))

@@ -69,7 +69,7 @@ export default function Login({ onLogin }: Props) {
     >
       <div className="card" style={{ width: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 800 }}>KamVDI</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 800 }}>CwmVDI</h1>
           <p style={{ color: "var(--text-muted)", marginTop: 8 }}>
             Virtual Desktop Infrastructure
           </p>

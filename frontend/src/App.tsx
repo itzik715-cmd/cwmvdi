@@ -76,7 +76,7 @@ function App() {
           <h2 style={{ marginBottom: 12 }}>Setup Required</h2>
           <p style={{ color: "var(--text-muted)", marginBottom: 24 }}>
             Configure your Kamatera API connection to start managing desktops.
-            Tag your system server with <strong>kamvdi-&#123;userId&#125;</strong> in your Kamatera console first.
+            Tag your system server with <strong>cwmvdi-&#123;userId&#125;</strong> in your Kamatera console first.
           </p>
           <button
             className="btn-primary"

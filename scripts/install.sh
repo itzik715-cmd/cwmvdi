@@ -2,13 +2,13 @@
 set -euo pipefail
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-log()   { echo -e "${GREEN}[KamVDI]${NC} $1"; }
+log()   { echo -e "${GREEN}[CwmVDI]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 fatal() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║         KamVDI Installation v2.0         ║"
+echo "║         CwmVDI Installation v2.0         ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
@@ -90,10 +90,10 @@ SECRET_KEY=${SECRET_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_TEMP_PASSWORD=${ADMIN_PASS}
-POSTGRES_DB=kamvdi
-POSTGRES_USER=kamvdi
+POSTGRES_DB=cwmvdi
+POSTGRES_USER=cwmvdi
 POSTGRES_PASSWORD=${PG_PASS}
-DATABASE_URL=postgresql+asyncpg://kamvdi:${PG_PASS}@postgres:5432/kamvdi
+DATABASE_URL=postgresql+asyncpg://cwmvdi:${PG_PASS}@postgres:5432/cwmvdi
 REDIS_PASSWORD=${REDIS_PASS}
 REDIS_URL=redis://:${REDIS_PASS}@redis:6379/0
 DEFAULT_SUSPEND_MINUTES=${SUSPEND_MIN}
@@ -129,7 +129,7 @@ if command -v certbot &>/dev/null; then
     USE_LE=true
     log "Let's Encrypt certificate obtained"
 
-    RENEW_SCRIPT="/etc/cron.d/kamvdi-cert-renew"
+    RENEW_SCRIPT="/etc/cron.d/cwmvdi-cert-renew"
     cat > ${RENEW_SCRIPT} << CRON
 SHELL=/bin/bash
 0 3 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/fullchain.pem $(pwd)/nginx/ssl/cert.pem && cp /etc/letsencrypt/live/${PORTAL_DOMAIN}/privkey.pem $(pwd)/nginx/ssl/key.pem && cd $(pwd) && docker compose exec -T nginx nginx -s reload
@@ -217,7 +217,7 @@ finally:
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║                                                      ║"
-echo "║   KamVDI is ready!                                   ║"
+echo "║   CwmVDI is ready!                                   ║"
 echo "║                                                      ║"
 echo "║   URL:       https://${PORTAL_DOMAIN}                ║"
 echo "║   Email:     ${ADMIN_EMAIL}                          ║"

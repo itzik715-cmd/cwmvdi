@@ -1,4 +1,4 @@
-# KamVDI — Virtual Desktop Infrastructure
+# CwmVDI — Virtual Desktop Infrastructure
 
 Enables Kamatera customers to provide Windows cloud desktops to their users,
 accessible via native RDP with MFA and full security.
@@ -6,8 +6,8 @@ accessible via native RDP with MFA and full security.
 ## Quick Install
 
 ```bash
-git clone https://github.com/itzik715-cmd/kamvdi.git
-cd kamvdi
+git clone https://github.com/itzik715-cmd/cwmvdi.git
+cd cwmvdi
 sudo ./scripts/install.sh
 ```
 
@@ -24,16 +24,16 @@ sudo ./scripts/install.sh
 3. **Settings → CloudWM API** — Enter API credentials
 4. **Users** — Create users
 5. **Desktops** — Create Windows VMs and assign to users
-6. Users download the KamVDI Agent and connect
+6. Users connect via browser (Guacamole) or download an .rdp file for native RDP
 
 ## NAT Gateway
 
-KamVDI can act as a NAT gateway, routing all Windows VM internet traffic through the proxy server. VMs are placed on a private VLAN with no public IP — the proxy handles all outbound NAT.
+CwmVDI can act as a NAT gateway, routing all Windows VM internet traffic through the proxy server. VMs are placed on a private VLAN with no public IP — the proxy handles all outbound NAT.
 
 ```
 [Internet / WAN]
        |
-  [KamVDI Proxy] ← public IP + private LAN IP
+  [CwmVDI Proxy] ← public IP + private LAN IP
    iptables NAT    (IP forwarding + masquerade)
        |
   [Private VLAN]
@@ -49,19 +49,18 @@ To set up manually: `sudo ./scripts/setup-nat-gateway.sh [LAN_IFACE] [WAN_IFACE]
 ## Architecture
 
 ```
-[User Browser] → [Portal] → [Boundary] → [Windows VM - private network]
+[User Browser] → [Portal] → [Guacamole/guacd] → [Windows VM RDP]
                     ↓
-              [KamVDI Agent] → mstsc
+              [.rdp file download] → native mstsc via socat proxy
 ```
 
 ## Project Structure
 
 ```
-kamvdi/
+cwmvdi/
 ├── scripts/install.sh    ← entry point
 ├── docker-compose.yml
 ├── backend/              ← FastAPI
 ├── frontend/             ← React
-├── agent/                ← Go binary
 └── nginx/
 ```

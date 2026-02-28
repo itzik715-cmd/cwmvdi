@@ -126,7 +126,7 @@ export default function Settings() {
         setMultipleServers(data.servers || []);
         setCwmSaved(true);
       } else if (data.discover_status === "no_match") {
-        setDiscoverError('No system server found. Tag a server with "kamvdi-{userId}" in your Kamatera console.');
+        setDiscoverError('No system server found. Tag a server with "cwmvdi-{userId}" in your Kamatera console.');
         setCwmSaved(true);
       } else if (data.discover_status === "error") {
         setDiscoverError(`Discovery failed: ${data.detail}`);
@@ -154,7 +154,7 @@ export default function Settings() {
       } else if (data.discover_status === "multiple") {
         setMultipleServers(data.servers || []);
       } else if (data.discover_status === "no_match") {
-        setDiscoverError('No system server found. Tag a server with "kamvdi-{userId}" in your Kamatera console.');
+        setDiscoverError('No system server found. Tag a server with "cwmvdi-{userId}" in your Kamatera console.');
       } else if (data.discover_status === "error") {
         setDiscoverError(`Discovery failed: ${data.detail}`);
       }
@@ -354,12 +354,12 @@ export default function Settings() {
         </form>
       </div>
 
-      {/* Server Selection (shown when multiple kamvdi-* servers found) */}
+      {/* Server Selection (shown when multiple cwmvdi-* servers found) */}
       {multipleServers.length > 0 && (
         <div className="card" style={{ maxWidth: 560, marginBottom: 24, borderColor: "var(--warning)" }}>
           <h3 style={{ marginBottom: 8 }}>Select System Server</h3>
           <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-            Multiple kamvdi-* servers found. Select which one is your system server:
+            Multiple cwmvdi-* servers found. Select which one is your system server:
           </p>
           {multipleServers.map((s) => (
             <label
@@ -458,7 +458,7 @@ export default function Settings() {
         <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
           <h3 style={{ marginBottom: 8 }}>System Server</h3>
           <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-            No system server discovered yet. Tag your server with <strong>kamvdi-&#123;userId&#125;</strong> in
+            No system server discovered yet. Tag your server with <strong>cwmvdi-&#123;userId&#125;</strong> in
             your Kamatera console, then click Discover.
           </p>
           {discoverError && <p className="error-msg" style={{ marginBottom: 8 }}>{discoverError}</p>}

@@ -41,7 +41,7 @@ class RDPProxyManager:
         hostname: str,
         port: int,
         username: str = "",
-        display_name: str = "KamVDI Desktop",
+        display_name: str = "CwmVDI Desktop",
     ) -> str:
         """Generate .rdp file content."""
         lines = [

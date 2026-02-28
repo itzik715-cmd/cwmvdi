@@ -47,7 +47,7 @@ export default function Connecting({ user }: Props) {
 
         // Build the connection client identifier
         // Guacamole format: BASE64(connectionName + \0 + c + \0 + json)
-        const connectionName = `kamvdi-${desktopId}`;
+        const connectionName = `cwmvdi-${desktopId}`;
         const clientId = btoa(`${connectionName}\0c\0json`);
 
         const url = `${data.guacamole_url}/#/client/${encodeURIComponent(clientId)}?token=${encodeURIComponent(authToken)}`;

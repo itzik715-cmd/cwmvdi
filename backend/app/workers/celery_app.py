@@ -6,7 +6,7 @@ from app.config import get_settings
 settings = get_settings()
 
 celery_app = Celery(
-    "kamvdi",
+    "cwmvdi",
     broker=settings.redis_url,
     backend=settings.redis_url,
 )
