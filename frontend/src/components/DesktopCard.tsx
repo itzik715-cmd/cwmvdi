@@ -10,18 +10,15 @@ interface Props {
 export default function DesktopCard({ desktop }: Props) {
   const navigate = useNavigate();
 
-  const handleDownloadRDP = async () => {
+  const handleNativeRDP = async () => {
     try {
-      const res = await desktopsApi.downloadRDPFile(desktop.id);
-      const blob = new Blob([res.data], { type: "application/x-rdp" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${desktop.display_name.replace(/ /g, "_")}.rdp`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const res = await desktopsApi.nativeRDP(desktop.id);
+      const { hostname, port, username } = res.data;
+      const address = `${hostname}:${port}`;
+      const uri = `ms-rd:full%20address=s:${encodeURIComponent(address)}&username=s:${encodeURIComponent(username)}`;
+      window.location.href = uri;
     } catch {
-      alert("Failed to generate RDP file");
+      alert("Failed to launch native RDP");
     }
   };
 
@@ -52,10 +49,10 @@ export default function DesktopCard({ desktop }: Props) {
         <button
           className="btn-ghost"
           style={{ padding: "12px 16px", fontSize: 13 }}
-          onClick={handleDownloadRDP}
-          title="Download .rdp file for native Remote Desktop client"
+          onClick={handleNativeRDP}
+          title="Open with native Remote Desktop client"
         >
-          RDP File
+          Native RDP
         </button>
       </div>
     </div>

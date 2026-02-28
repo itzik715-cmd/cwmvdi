@@ -265,6 +265,69 @@ async def download_rdp_file(
     )
 
 
+@router.post("/{desktop_id}/native-rdp")
+async def native_rdp(
+    desktop_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Power on VM, start TCP proxy, return connection details for ms-rd: URI."""
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.user_id == user.id,
+            DesktopAssignment.is_active == True,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    if not desktop.vm_private_ip:
+        raise HTTPException(status_code=400, detail="Desktop has no IP address configured")
+
+    tenant = await _get_tenant(db, user.tenant_id)
+    cloudwm = _get_cloudwm(tenant)
+
+    # 1. Power on VM if needed
+    power_mgr = PowerManager()
+    desktop.current_state = "starting"
+    await db.commit()
+
+    vm_ready = await power_mgr.ensure_vm_running(desktop, cloudwm)
+    if not vm_ready:
+        desktop.current_state = "unknown"
+        await db.commit()
+        raise HTTPException(status_code=503, detail="Failed to start desktop")
+
+    desktop.current_state = "on"
+    desktop.last_state_check = datetime.utcnow()
+
+    # 2. Start socat proxy
+    proxy_mgr = RDPProxyManager()
+    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip)
+
+    # 3. Create session record
+    public_ip = settings.server_public_ip or settings.portal_domain
+    session = Session(
+        user_id=user.id,
+        desktop_id=desktop.id,
+        connection_type="native",
+        proxy_port=port,
+        proxy_pid=pid,
+    )
+    db.add(session)
+    await db.commit()
+
+    # 4. Return connection details for ms-rd: URI
+    return {
+        "hostname": public_ip,
+        "port": port,
+        "username": desktop.vm_rdp_username or "Administrator",
+        "display_name": desktop.display_name,
+    }
+
+
 @router.post("/{desktop_id}/disconnect")
 async def disconnect_desktop(
     desktop_id: str,

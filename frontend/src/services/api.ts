@@ -36,6 +36,8 @@ export const desktopsApi = {
     api.post("/desktops/heartbeat", { session_id: sessionId }),
   downloadRDPFile: (id: string) =>
     api.post(`/desktops/${id}/rdp-file`, null, { responseType: "blob" }),
+  nativeRDP: (id: string) =>
+    api.post(`/desktops/${id}/native-rdp`),
 };
 
 // ── Admin APIs ──
