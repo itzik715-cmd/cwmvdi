@@ -194,14 +194,36 @@ async def list_all_desktops(
             )
             servers = await cloudwm.list_servers()
             server_map = {s["id"]: s.get("power", "").lower() for s in servers}
+            server_by_name = {s.get("name", ""): s for s in servers}
 
             for d in desktops:
-                if d.current_state == "provisioning":
-                    continue  # don't override provisioning state
                 power = server_map.get(d.cloudwm_server_id)
+
+                # Recovery: if server ID is numeric (command_id), try to find the real server
+                if not power and d.cloudwm_server_id.isdigit():
+                    for s in servers:
+                        if s.get("name", "").startswith("cwmvdi-") and s["id"] not in server_map:
+                            continue
+                        # Match by name pattern containing the display name
+                        name_slug = d.display_name.lower().replace(" ", "-")
+                        if name_slug in s.get("name", "").lower():
+                            d.cloudwm_server_id = s["id"]
+                            power = s.get("power", "").lower()
+                            # Also fetch IP
+                            try:
+                                info = await cloudwm.get_server(s["id"])
+                                nets = info.get("networks", [])
+                                if nets and nets[0].get("ips"):
+                                    d.vm_private_ip = nets[0]["ips"][0]
+                            except Exception:
+                                pass
+                            break
+
+                if d.current_state == "provisioning" and not power:
+                    continue  # don't override provisioning state if no match yet
                 if power:
                     new_state = "on" if power == "on" else "off" if power == "off" else d.current_state
-                    if new_state != d.current_state:
+                    if new_state != d.current_state or d.current_state in ("unknown", "provisioning"):
                         d.current_state = new_state
                         d.last_state_check = datetime.utcnow()
             await db.commit()
