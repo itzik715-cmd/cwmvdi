@@ -167,22 +167,26 @@ class CloudWMClient:
             return resp.json()
 
     async def suspend(self, server_id: str) -> dict:
-        """PUT /server/{server_id}/power — suspend (hibernate)."""
+        """POST /svc/server/{server_id}/power/suspend — suspend (hibernate)."""
+        base = self.base_url.rsplit("/service", 1)[0]
         async with await self._get_client() as client:
-            headers = await self._auth_headers()
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
-            resp = await client.put(
-                f"{self.base_url}/server/{server_id}/power",
-                headers=headers,
-                content="power=suspend",
+            resp = await client.post(
+                f"{base}/svc/server/{server_id}/power/suspend",
+                headers=await self._auth_headers(),
             )
             resp.raise_for_status()
             return resp.json()
 
     async def resume(self, server_id: str) -> dict:
-        """Resume a suspended VM by powering on."""
-        logger.info("Resuming (powering on) VM %s", server_id)
-        return await self.power_on(server_id)
+        """POST /svc/server/{server_id}/power/resume — resume from suspend."""
+        base = self.base_url.rsplit("/service", 1)[0]
+        async with await self._get_client() as client:
+            resp = await client.post(
+                f"{base}/svc/server/{server_id}/power/resume",
+                headers=await self._auth_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
 
     async def terminate_server(self, server_id: str) -> dict:
         """DELETE /server/{server_id} — permanently terminate and delete a server."""
