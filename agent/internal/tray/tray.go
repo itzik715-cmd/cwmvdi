@@ -3,6 +3,7 @@ package tray
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"fyne.io/systray"
 	"github.com/itzik715-cmd/kamatera-vdi/agent/internal/config"
@@ -66,8 +67,12 @@ func onReady() {
 				mSessions.SetTitle(fmt.Sprintf("Active Sessions: %d", current))
 				last = current
 			}
+			time.Sleep(time.Second)
 		}
 	}()
+
+	// Notify user that agent is running
+	notify.Show("KamVDI Agent", "Agent is running and ready for connections.")
 }
 
 func onExit() {
