@@ -49,6 +49,9 @@ export default function Desktops() {
   const [terminateError, setTerminateError] = useState<string | null>(null);
   const [terminating, setTerminating] = useState(false);
 
+  // Per-desktop loading state for power/activate/unregister actions
+  const [busyAction, setBusyAction] = useState<Record<string, string>>({});
+
   const fetchDesktops = () => {
     adminApi.listDesktops().then((res) => setDesktops(res.data));
   };
@@ -148,11 +151,14 @@ export default function Desktops() {
 
   const handleUnregister = async (id: string) => {
     if (!confirm("Remove this desktop from the VDI system? The server will NOT be deleted.")) return;
+    setBusyAction((prev) => ({ ...prev, [id]: "Removing..." }));
     try {
       await adminApi.unregisterDesktop(id);
       fetchDesktops();
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to unregister");
+    } finally {
+      setBusyAction((prev) => { const n = { ...prev }; delete n[id]; return n; });
     }
   };
 
@@ -173,16 +179,34 @@ export default function Desktops() {
   };
 
   const handleActivate = async (id: string) => {
-    await adminApi.activateDesktop(id);
-    fetchDesktops();
+    setBusyAction((prev) => ({ ...prev, [id]: "Activating..." }));
+    try {
+      await adminApi.activateDesktop(id);
+      fetchDesktops();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to activate");
+    } finally {
+      setBusyAction((prev) => { const n = { ...prev }; delete n[id]; return n; });
+    }
+  };
+
+  const powerLabels: Record<string, string> = {
+    suspend: "Suspending...",
+    resume: "Resuming...",
+    power_on: "Powering on...",
+    power_off: "Powering off...",
+    restart: "Restarting...",
   };
 
   const handlePower = async (id: string, action: string) => {
+    setBusyAction((prev) => ({ ...prev, [id]: powerLabels[action] || "Processing..." }));
     try {
       await adminApi.desktopPower(id, action);
       fetchDesktops();
     } catch (err: any) {
       alert(err.response?.data?.detail || `Power action '${action}' failed`);
+    } finally {
+      setBusyAction((prev) => { const n = { ...prev }; delete n[id]; return n; });
     }
   };
 
@@ -306,6 +330,9 @@ export default function Desktops() {
                   )}
                 </td>
                 <td>
+                  {busyAction[d.id] ? (
+                    <span style={{ fontSize: 11, color: "var(--accent)" }}>{busyAction[d.id]}</span>
+                  ) : (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     {d.current_state === "on" && (
                       <>
@@ -344,6 +371,7 @@ export default function Desktops() {
                       <span style={{ fontSize: 11, color: "var(--text-muted)" }}>—</span>
                     )}
                   </div>
+                  )}
                 </td>
                 <td>
                   <div style={{ display: "flex", gap: 4 }}>
@@ -352,16 +380,19 @@ export default function Desktops() {
                         className="btn-primary"
                         style={{ padding: "3px 8px", fontSize: 11 }}
                         onClick={() => handleActivate(d.id)}
+                        disabled={!!busyAction[d.id]}
                       >Activate</button>
                     )}
                     <button
-                      style={{ padding: "3px 8px", fontSize: 11, background: "#6b7280", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                      style={{ padding: "3px 8px", fontSize: 11, background: "#6b7280", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", opacity: busyAction[d.id] ? 0.5 : 1 }}
                       onClick={() => handleUnregister(d.id)}
+                      disabled={!!busyAction[d.id]}
                     >Unregister</button>
                     <button
                       className="btn-danger"
                       style={{ padding: "3px 8px", fontSize: 11 }}
                       onClick={() => { setTerminateDesktop(d); setMfaCode(""); setTerminateError(null); }}
+                      disabled={!!busyAction[d.id]}
                     >Terminate</button>
                   </div>
                 </td>

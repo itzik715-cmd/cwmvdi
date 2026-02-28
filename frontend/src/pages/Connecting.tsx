@@ -14,6 +14,7 @@ export default function Connecting({ user }: Props) {
   const { connect, error, result } = useSession();
   const [phase, setPhase] = useState<"starting" | "auth" | "connected" | "error">("starting");
   const [guacClientUrl, setGuacClientUrl] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -71,6 +72,7 @@ export default function Connecting({ user }: Props) {
   }, [desktopId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDisconnect = async () => {
+    setDisconnecting(true);
     if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     if (desktopId) {
       await desktopsApi.disconnect(desktopId).catch(() => {});
@@ -142,17 +144,18 @@ export default function Connecting({ user }: Props) {
         </span>
         <button
           onClick={handleDisconnect}
+          disabled={disconnecting}
           style={{
-            background: "#dc2626",
+            background: disconnecting ? "#9ca3af" : "#dc2626",
             color: "#fff",
             border: "none",
             padding: "6px 16px",
             borderRadius: 6,
             fontSize: 13,
-            cursor: "pointer",
+            cursor: disconnecting ? "default" : "pointer",
           }}
         >
-          Disconnect
+          {disconnecting ? "Disconnecting..." : "Disconnect"}
         </button>
       </div>
       {/* Guacamole iframe */}

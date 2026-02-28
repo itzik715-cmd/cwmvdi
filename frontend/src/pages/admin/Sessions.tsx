@@ -4,6 +4,7 @@ import type { AdminSession } from "../../types";
 
 export default function Sessions() {
   const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [terminatingId, setTerminatingId] = useState<string | null>(null);
 
   const fetchSessions = () => {
     adminApi.listSessions().then((res) => setSessions(res.data));
@@ -17,8 +18,15 @@ export default function Sessions() {
 
   const handleTerminate = async (id: string) => {
     if (!confirm("Force terminate this session?")) return;
-    await adminApi.terminateSession(id);
-    fetchSessions();
+    setTerminatingId(id);
+    try {
+      await adminApi.terminateSession(id);
+      fetchSessions();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to terminate session");
+    } finally {
+      setTerminatingId(null);
+    }
   };
 
   const timeSince = (dateStr: string | null) => {
@@ -75,8 +83,9 @@ export default function Sessions() {
                     className="btn-danger"
                     style={{ padding: "4px 12px", fontSize: 12 }}
                     onClick={() => handleTerminate(s.id)}
+                    disabled={terminatingId === s.id}
                   >
-                    Terminate
+                    {terminatingId === s.id ? "Ending..." : "Terminate"}
                   </button>
                 </td>
               </tr>

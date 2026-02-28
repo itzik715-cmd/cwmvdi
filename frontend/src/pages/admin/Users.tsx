@@ -10,6 +10,7 @@ export default function Users() {
   const [role, setRole] = useState("user");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
 
   const fetchUsers = () => {
     adminApi.listUsers().then((res) => setUsers(res.data));
@@ -37,8 +38,15 @@ export default function Users() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Deactivate this user?")) return;
-    await adminApi.deleteUser(id);
-    fetchUsers();
+    setDeactivatingId(id);
+    try {
+      await adminApi.deleteUser(id);
+      fetchUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to deactivate user");
+    } finally {
+      setDeactivatingId(null);
+    }
   };
 
   return (
@@ -78,8 +86,9 @@ export default function Users() {
                       className="btn-danger"
                       style={{ padding: "4px 12px", fontSize: 12 }}
                       onClick={() => handleDelete(u.id)}
+                      disabled={deactivatingId === u.id}
                     >
-                      Deactivate
+                      {deactivatingId === u.id ? "Deactivating..." : "Deactivate"}
                     </button>
                   )}
                 </td>
