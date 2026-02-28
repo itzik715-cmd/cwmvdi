@@ -11,6 +11,7 @@ interface Props {
 export default function DesktopCard({ desktop }: Props) {
   const navigate = useNavigate();
   const [rdpLoading, setRdpLoading] = useState(false);
+  const [showStoreLink, setShowStoreLink] = useState(false);
 
   const handleNativeRDP = async () => {
     setRdpLoading(true);
@@ -26,36 +27,11 @@ export default function DesktopCard({ desktop }: Props) {
       iframe.src = uri;
       document.body.appendChild(iframe);
 
-      // After 2 seconds, if still here, fall back to .rdp file download
+      // After 2 seconds, if still here, ms-rd: wasn't handled — show install prompt
       setTimeout(() => {
         document.body.removeChild(iframe);
-        // Generate and download .rdp file as fallback
-        const lines = [
-          `full address:s:${address}`,
-          `username:s:${username}`,
-          "prompt for credentials:i:1",
-          "screen mode id:i:2",
-          "desktopwidth:i:1920",
-          "desktopheight:i:1080",
-          "session bpp:i:32",
-          "compression:i:1",
-          "keyboardhook:i:2",
-          "audiocapturemode:i:0",
-          "videoplaybackmode:i:1",
-          "connection type:i:7",
-          "networkautodetect:i:1",
-          "bandwidthautodetect:i:1",
-          "autoreconnection enabled:i:1",
-        ];
-        const rdpContent = lines.join("\r\n") + "\r\n";
-        const blob = new Blob([rdpContent], { type: "application/x-rdp" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${desktop.display_name.replace(/ /g, "_")}.rdp`;
-        a.click();
-        URL.revokeObjectURL(url);
         setRdpLoading(false);
+        setShowStoreLink(true);
       }, 2000);
     } catch {
       alert("Failed to launch native RDP");
@@ -97,6 +73,21 @@ export default function DesktopCard({ desktop }: Props) {
           {rdpLoading ? "Connecting..." : "Native RDP"}
         </button>
       </div>
+
+      {showStoreLink && (
+        <div style={{ fontSize: 13, color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "10px 12px", borderRadius: 8 }}>
+          Microsoft Remote Desktop app is required.{" "}
+          <a
+            href="https://apps.microsoft.com/detail/9wzdncrfj3ps"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--accent)", textDecoration: "underline" }}
+          >
+            Install from Microsoft Store
+          </a>
+          , then try again.
+        </div>
+      )}
     </div>
   );
 }
