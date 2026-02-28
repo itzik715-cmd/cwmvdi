@@ -56,7 +56,7 @@ export default function Dashboard({ user, onLogout }: Props) {
       {!loading && desktops.length > 0 && (
         <div className="grid">
           {desktops.map((d) => (
-            <DesktopCard key={d.id} desktop={d} />
+            <DesktopCard key={d.id} desktop={d} user={user} />
           ))}
         </div>
       )}

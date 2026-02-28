@@ -30,14 +30,14 @@ api.interceptors.response.use(
 
 export const desktopsApi = {
   list: () => api.get("/desktops"),
-  connect: (id: string) => api.post(`/desktops/${id}/connect`),
+  connect: (id: string, mfa_code?: string) => api.post(`/desktops/${id}/connect`, { mfa_code }),
   disconnect: (id: string) => api.post(`/desktops/${id}/disconnect`),
   heartbeat: (sessionId: string) =>
     api.post("/desktops/heartbeat", { session_id: sessionId }),
   downloadRDPFile: (id: string) =>
     api.post(`/desktops/${id}/rdp-file`, null, { responseType: "blob" }),
-  nativeRDP: (id: string) =>
-    api.post(`/desktops/${id}/native-rdp`),
+  nativeRDP: (id: string, mfa_code?: string) =>
+    api.post(`/desktops/${id}/native-rdp`, { mfa_code }),
 };
 
 // ── Admin APIs ──
@@ -47,6 +47,9 @@ export const adminApi = {
   createUser: (data: { username: string; password: string; email?: string; role?: string }) =>
     api.post("/admin/users", data),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
+  requireMFA: (id: string) => api.post(`/admin/users/${id}/require-mfa`),
+  resetMFA: (id: string) => api.post(`/admin/users/${id}/reset-mfa`),
+  disableMFA: (id: string) => api.post(`/admin/users/${id}/disable-mfa`),
 
   listDesktops: () => api.get("/admin/desktops"),
   createDesktop: (data: {

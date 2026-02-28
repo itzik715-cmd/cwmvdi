@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useSession } from "../hooks/useSession";
 import { desktopsApi } from "../services/api";
 import type { User } from "../types";
@@ -11,6 +11,8 @@ interface Props {
 export default function Connecting({ user }: Props) {
   const { desktopId } = useParams<{ desktopId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const mfaCode = (location.state as any)?.mfa_code as string | undefined;
   const { connect, error, result } = useSession();
   const [phase, setPhase] = useState<"starting" | "auth" | "connected" | "error">("starting");
   const [guacClientUrl, setGuacClientUrl] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export default function Connecting({ user }: Props) {
     const run = async () => {
       try {
         setPhase("starting");
-        const data = await connect(desktopId);
+        const data = await connect(desktopId, mfaCode);
         if (!data?.guacamole_token) {
           setPhase("error");
           return;

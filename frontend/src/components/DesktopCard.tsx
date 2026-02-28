@@ -2,40 +2,96 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { desktopsApi } from "../services/api";
 import StatusBadge from "./StatusBadge";
-import type { Desktop } from "../types";
+import MFAInput from "./MFAInput";
+import type { Desktop, User } from "../types";
 
 interface Props {
   desktop: Desktop;
+  user: User;
 }
 
-export default function DesktopCard({ desktop }: Props) {
+export default function DesktopCard({ desktop, user }: Props) {
   const navigate = useNavigate();
   const [rdpLoading, setRdpLoading] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [showMFA, setShowMFA] = useState<"browser" | "native" | null>(null);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaLoading, setMfaLoading] = useState(false);
 
-  const handleNativeRDP = async () => {
+  const needsMFA = user.mfa_enabled;
+  const needsMFASetup = user.mfa_setup_required;
+
+  const handleBrowserConnect = (mfaCode?: string) => {
+    navigate(`/connecting/${desktop.id}`, { state: { mfa_code: mfaCode } });
+  };
+
+  const handleBrowserClick = () => {
+    if (needsMFASetup) {
+      navigate("/mfa-setup");
+      return;
+    }
+    if (needsMFA) {
+      setShowMFA("browser");
+      setMfaError(null);
+      return;
+    }
+    handleBrowserConnect();
+  };
+
+  const handleNativeRDP = async (mfaCode?: string) => {
     setRdpLoading(true);
     setShowSetup(false);
     try {
-      const res = await desktopsApi.nativeRDP(desktop.id);
+      const res = await desktopsApi.nativeRDP(desktop.id, mfaCode);
       const { hostname, port } = res.data;
       const uri = `cwmvdi://${hostname}:${port}`;
 
-      // Try opening cwmvdi:// protocol
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
       iframe.src = uri;
       document.body.appendChild(iframe);
 
-      // After 2 seconds, if still here, protocol wasn't handled
       setTimeout(() => {
         document.body.removeChild(iframe);
         setRdpLoading(false);
         setShowSetup(true);
       }, 2000);
-    } catch {
-      alert("Failed to launch native RDP");
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || "Failed to launch native RDP";
+      alert(msg);
       setRdpLoading(false);
+    }
+  };
+
+  const handleNativeClick = () => {
+    if (needsMFASetup) {
+      navigate("/mfa-setup");
+      return;
+    }
+    if (needsMFA) {
+      setShowMFA("native");
+      setMfaError(null);
+      return;
+    }
+    handleNativeRDP();
+  };
+
+  const handleMFASubmit = async (code: string) => {
+    setMfaLoading(true);
+    setMfaError(null);
+    if (showMFA === "browser") {
+      handleBrowserConnect(code);
+      setShowMFA(null);
+      setMfaLoading(false);
+    } else if (showMFA === "native") {
+      try {
+        await handleNativeRDP(code);
+        setShowMFA(null);
+      } catch {
+        setMfaError("Connection failed");
+      } finally {
+        setMfaLoading(false);
+      }
     }
   };
 
@@ -59,14 +115,14 @@ export default function DesktopCard({ desktop }: Props) {
         <button
           className="btn-primary"
           style={{ flex: 1, padding: 12, fontSize: 15 }}
-          onClick={() => navigate(`/connecting/${desktop.id}`)}
+          onClick={handleBrowserClick}
         >
           Open in Browser
         </button>
         <button
           className="btn-ghost"
           style={{ padding: "12px 16px", fontSize: 13 }}
-          onClick={handleNativeRDP}
+          onClick={handleNativeClick}
           disabled={rdpLoading}
           title="Open with native Remote Desktop client"
         >
@@ -84,6 +140,24 @@ export default function DesktopCard({ desktop }: Props) {
             Download setup file
           </a>
           , run it, and click "Yes" to register. Then try Native RDP again.
+        </div>
+      )}
+
+      {/* MFA Code Modal */}
+      {showMFA && (
+        <div className="modal-overlay" onClick={() => setShowMFA(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400, textAlign: "center" }}>
+            <h2 style={{ marginBottom: 8 }}>MFA Verification</h2>
+            <p style={{ color: "var(--text-muted)", marginBottom: 24, fontSize: 14 }}>
+              Enter the 6-digit code from your authenticator app to connect to {desktop.display_name}
+            </p>
+            <MFAInput onSubmit={handleMFASubmit} error={mfaError} loading={mfaLoading} />
+            <div style={{ marginTop: 16 }}>
+              <button className="btn-ghost" onClick={() => setShowMFA(null)} style={{ fontSize: 13 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

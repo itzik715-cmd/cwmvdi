@@ -6,9 +6,10 @@ import type { MFASetupData, User } from "../types";
 
 interface Props {
   user: User;
+  onComplete?: () => void;
 }
 
-export default function MFASetup({ user }: Props) {
+export default function MFASetup({ user, onComplete }: Props) {
   const navigate = useNavigate();
   const [data, setData] = useState<MFASetupData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +30,11 @@ export default function MFASetup({ user }: Props) {
     try {
       await authApi.confirmMFA(code);
       setConfirmed(true);
-      setTimeout(() => navigate("/"), 2000);
+      if (onComplete) {
+        setTimeout(() => onComplete(), 1500);
+      } else {
+        setTimeout(() => navigate("/"), 2000);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Invalid code");
     } finally {

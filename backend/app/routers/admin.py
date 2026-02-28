@@ -115,6 +115,7 @@ async def list_users(
             "email": u.email,
             "role": u.role,
             "mfa_enabled": u.mfa_enabled,
+            "mfa_required": u.mfa_required,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat(),
         }
@@ -169,6 +170,70 @@ async def delete_user(
     user.is_active = False
     await db.commit()
     return {"message": "User deactivated"}
+
+
+@router.post("/users/{user_id}/require-mfa")
+async def require_mfa(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.mfa_required = True
+    await db.commit()
+    return {"message": "MFA required for user"}
+
+
+@router.post("/users/{user_id}/reset-mfa")
+async def reset_mfa(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.mfa_secret = None
+    user.mfa_enabled = False
+    # Keep mfa_required=True so user must re-setup
+    await db.commit()
+    return {"message": "MFA reset — user must set up again"}
+
+
+@router.post("/users/{user_id}/disable-mfa")
+async def disable_mfa(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.mfa_required = False
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    await db.commit()
+    return {"message": "MFA disabled for user"}
 
 
 # ── Desktops ──

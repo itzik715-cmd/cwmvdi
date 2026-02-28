@@ -4,6 +4,7 @@ export interface User {
   email: string | null;
   role: "user" | "admin" | "superadmin";
   mfa_enabled: boolean;
+  mfa_setup_required?: boolean;
   must_change_password: boolean;
   tenant_id: string;
   cloudwm_setup_required?: boolean;
@@ -39,6 +40,7 @@ export interface AdminUser {
   email: string | null;
   role: string;
   mfa_enabled: boolean;
+  mfa_required: boolean;
   is_active: boolean;
   created_at: string;
 }

@@ -67,6 +67,11 @@ function App() {
     return <ChangePassword user={user} onChanged={fetchUser} />;
   }
 
+  // Force MFA setup if required (admin always, user when admin requires it)
+  if (user.mfa_setup_required) {
+    return <MFASetup user={user} onComplete={fetchUser} />;
+  }
+
   const isAdmin = user.role === "admin" || user.role === "superadmin";
 
   // Force CloudWM setup for admin users

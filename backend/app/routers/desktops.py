@@ -19,6 +19,7 @@ from app.services.cloudwm import CloudWMClient
 from app.services.encryption import decrypt_value
 from app.services.guacamole import GuacamoleTokenService
 from app.services.power_manager import PowerManager
+from app.services.mfa import verify_totp
 from app.services.rdp_proxy import RDPProxyManager
 
 router = APIRouter()
@@ -44,6 +45,10 @@ class ConnectResponse(BaseModel):
     guacamole_url: str | None = None
 
 
+class ConnectRequest(BaseModel):
+    mfa_code: str | None = None
+
+
 class HeartbeatRequest(BaseModel):
     session_id: str
 
@@ -65,6 +70,17 @@ def _get_cloudwm(tenant: Tenant) -> CloudWMClient:
         client_id=tenant.cloudwm_client_id,
         secret=decrypt_value(tenant.cloudwm_secret_encrypted),
     )
+
+
+def _verify_connection_mfa(user: User, mfa_code: str | None) -> None:
+    """Verify MFA code for desktop connections if MFA is active."""
+    if user.mfa_required and not user.mfa_enabled:
+        raise HTTPException(status_code=403, detail="MFA setup required before connecting. Please set up MFA first.")
+    if user.mfa_enabled and user.mfa_secret:
+        if not mfa_code:
+            raise HTTPException(status_code=403, detail="MFA code required to connect")
+        if not verify_totp(user.mfa_secret, mfa_code):
+            raise HTTPException(status_code=401, detail="Invalid MFA code")
 
 
 # ── Endpoints ──
@@ -127,10 +143,13 @@ async def list_desktops(
 @router.post("/{desktop_id}/connect", response_model=ConnectResponse)
 async def connect_desktop(
     desktop_id: str,
+    req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM if needed, create Guacamole session token."""
+    _verify_connection_mfa(user, req.mfa_code)
+
     result = await db.execute(
         select(DesktopAssignment).where(
             DesktopAssignment.id == uuid.UUID(desktop_id),
@@ -210,10 +229,13 @@ async def connect_desktop(
 @router.post("/{desktop_id}/rdp-file")
 async def download_rdp_file(
     desktop_id: str,
+    req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM, start TCP proxy, return .rdp file for native RDP client."""
+    _verify_connection_mfa(user, req.mfa_code)
+
     result = await db.execute(
         select(DesktopAssignment).where(
             DesktopAssignment.id == uuid.UUID(desktop_id),
@@ -280,10 +302,13 @@ async def download_rdp_file(
 @router.post("/{desktop_id}/native-rdp")
 async def native_rdp(
     desktop_id: str,
+    req: ConnectRequest = ConnectRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM, start TCP proxy, return connection details for ms-rd: URI."""
+    _verify_connection_mfa(user, req.mfa_code)
+
     result = await db.execute(
         select(DesktopAssignment).where(
             DesktopAssignment.id == uuid.UUID(desktop_id),

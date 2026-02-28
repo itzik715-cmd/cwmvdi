@@ -1,5 +1,6 @@
 import time
 from collections import defaultdict
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
@@ -86,8 +87,13 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
             detail="Invalid username or password",
         )
 
-    if user.mfa_enabled and user.mfa_secret:
-        # Issue a temporary MFA token (short-lived, limited scope)
+    is_admin = user.role in ("admin", "superadmin")
+
+    # Role-based token expiry: admin=4h, user=12h
+    token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
+
+    # MFA at login is only required for admins
+    if is_admin and user.mfa_enabled and user.mfa_secret:
         mfa_token = create_access_token(
             user_id=user.id,
             tenant_id=user.tenant_id,
@@ -95,9 +101,10 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
         )
         return LoginResponse(requires_mfa=True, mfa_token=mfa_token)
 
-    # No MFA — issue full access token
+    # Regular users (or admins without MFA set up): issue full token
     access_token = create_access_token(
-        user_id=user.id, tenant_id=user.tenant_id, role=user.role
+        user_id=user.id, tenant_id=user.tenant_id, role=user.role,
+        expires_delta=token_expiry,
     )
     return LoginResponse(requires_mfa=False, access_token=access_token)
 
@@ -121,8 +128,12 @@ async def verify_mfa(req: MFAVerifyRequest, db: AsyncSession = Depends(get_db)):
     if not verify_totp(user.mfa_secret, req.code):
         raise HTTPException(status_code=401, detail="Invalid MFA code")
 
+    is_admin = user.role in ("admin", "superadmin")
+    token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
+
     access_token = create_access_token(
-        user_id=user.id, tenant_id=user.tenant_id, role=user.role
+        user_id=user.id, tenant_id=user.tenant_id, role=user.role,
+        expires_delta=token_expiry,
     )
     return LoginResponse(requires_mfa=False, access_token=access_token)
 
@@ -135,17 +146,26 @@ async def logout():
 
 @router.get("/me")
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    is_admin = user.role in ("admin", "superadmin")
+
+    # Admins always need MFA; regular users only if admin required it
+    if is_admin:
+        mfa_setup_required = not user.mfa_enabled
+    else:
+        mfa_setup_required = user.mfa_required and not user.mfa_enabled
+
     data = {
         "id": str(user.id),
         "username": user.username,
         "email": user.email,
         "role": user.role,
         "mfa_enabled": user.mfa_enabled,
+        "mfa_setup_required": mfa_setup_required,
         "must_change_password": user.must_change_password,
         "tenant_id": str(user.tenant_id),
     }
     # For admin users, include cloudwm_setup_required from tenant
-    if user.role in ("admin", "superadmin"):
+    if is_admin:
         result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
         tenant = result.scalar_one_or_none()
         if tenant:

@@ -7,12 +7,12 @@ export function useSession() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConnectResult | null>(null);
 
-  const connect = async (desktopId: string) => {
+  const connect = async (desktopId: string, mfaCode?: string) => {
     setConnecting(true);
     setError(null);
     setResult(null);
     try {
-      const res = await desktopsApi.connect(desktopId);
+      const res = await desktopsApi.connect(desktopId, mfaCode);
       const data: ConnectResult = res.data;
       setResult(data);
       return data;

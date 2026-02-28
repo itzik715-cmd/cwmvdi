@@ -12,6 +12,7 @@ export default function Users() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [mfaBusyId, setMfaBusyId] = useState<string | null>(null);
 
   const fetchUsers = () => {
     adminApi.listUsers().then((res) => setUsers(res.data));
@@ -56,6 +57,26 @@ export default function Users() {
     }
   };
 
+  const handleMFAAction = async (id: string, action: "require" | "reset" | "disable") => {
+    setMfaBusyId(id);
+    try {
+      if (action === "require") await adminApi.requireMFA(id);
+      else if (action === "reset") await adminApi.resetMFA(id);
+      else await adminApi.disableMFA(id);
+      fetchUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "MFA action failed");
+    } finally {
+      setMfaBusyId(null);
+    }
+  };
+
+  const getMfaStatus = (u: AdminUser): { label: string; color: string } => {
+    if (u.mfa_enabled) return { label: "Active", color: "var(--success)" };
+    if (u.mfa_required) return { label: "Pending Setup", color: "var(--warning)" };
+    return { label: "Off", color: "var(--text-muted)" };
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -79,32 +100,75 @@ export default function Users() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td style={{ fontWeight: 600 }}>{u.username}</td>
-                <td style={{ color: u.email ? "inherit" : "var(--text-muted)" }}>
-                  {u.email || "—"}
-                </td>
-                <td><span className="badge badge-on">{u.role}</span></td>
-                <td>{u.mfa_enabled ? "Enabled" : "Disabled"}</td>
-                <td>{u.is_active ? "Active" : "Inactive"}</td>
-                <td style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                  {new Date(u.created_at).toLocaleDateString()}
-                </td>
-                <td>
-                  {u.is_active && (
-                    <button
-                      className="btn-danger"
-                      style={{ padding: "4px 12px", fontSize: 12 }}
-                      onClick={() => handleDelete(u.id)}
-                      disabled={deactivatingId === u.id}
-                    >
-                      {deactivatingId === u.id ? "Deactivating..." : "Deactivate"}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const mfa = getMfaStatus(u);
+              return (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 600 }}>{u.username}</td>
+                  <td style={{ color: u.email ? "inherit" : "var(--text-muted)" }}>
+                    {u.email || "—"}
+                  </td>
+                  <td><span className="badge badge-on">{u.role}</span></td>
+                  <td>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ color: mfa.color, fontWeight: 600, fontSize: 12 }}>
+                        {mfa.label}
+                      </span>
+                      {u.is_active && mfaBusyId !== u.id && (
+                        <>
+                          {!u.mfa_enabled && !u.mfa_required && (
+                            <button
+                              className="btn-ghost"
+                              style={{ padding: "2px 8px", fontSize: 11 }}
+                              onClick={() => handleMFAAction(u.id, "require")}
+                            >
+                              Require
+                            </button>
+                          )}
+                          {u.mfa_required && !u.mfa_enabled && (
+                            <button
+                              className="btn-ghost"
+                              style={{ padding: "2px 8px", fontSize: 11 }}
+                              onClick={() => handleMFAAction(u.id, "disable")}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {u.mfa_enabled && (
+                            <button
+                              className="btn-ghost"
+                              style={{ padding: "2px 8px", fontSize: 11 }}
+                              onClick={() => handleMFAAction(u.id, "reset")}
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {mfaBusyId === u.id && (
+                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>...</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>{u.is_active ? "Active" : "Inactive"}</td>
+                  <td style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </td>
+                  <td>
+                    {u.is_active && (
+                      <button
+                        className="btn-danger"
+                        style={{ padding: "4px 12px", fontSize: 12 }}
+                        onClick={() => handleDelete(u.id)}
+                        disabled={deactivatingId === u.id}
+                      >
+                        {deactivatingId === u.id ? "Deactivating..." : "Deactivate"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
