@@ -11,27 +11,27 @@ interface Props {
 export default function DesktopCard({ desktop }: Props) {
   const navigate = useNavigate();
   const [rdpLoading, setRdpLoading] = useState(false);
-  const [showStoreLink, setShowStoreLink] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
 
   const handleNativeRDP = async () => {
     setRdpLoading(true);
+    setShowSetup(false);
     try {
       const res = await desktopsApi.nativeRDP(desktop.id);
-      const { hostname, port, username } = res.data;
-      const address = `${hostname}:${port}`;
+      const { hostname, port } = res.data;
+      const uri = `cwmvdi://${hostname}:${port}`;
 
-      // Try ms-rd: protocol first (requires Microsoft Remote Desktop Store app)
-      const uri = `ms-rd:full%20address=s:${encodeURIComponent(address)}&username=s:${encodeURIComponent(username)}`;
+      // Try opening cwmvdi:// protocol
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
       iframe.src = uri;
       document.body.appendChild(iframe);
 
-      // After 2 seconds, if still here, ms-rd: wasn't handled — show install prompt
+      // After 2 seconds, if still here, protocol wasn't handled
       setTimeout(() => {
         document.body.removeChild(iframe);
         setRdpLoading(false);
-        setShowStoreLink(true);
+        setShowSetup(true);
       }, 2000);
     } catch {
       alert("Failed to launch native RDP");
@@ -74,18 +74,16 @@ export default function DesktopCard({ desktop }: Props) {
         </button>
       </div>
 
-      {showStoreLink && (
+      {showSetup && (
         <div style={{ fontSize: 13, color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "10px 12px", borderRadius: 8 }}>
-          Microsoft Remote Desktop app is required.{" "}
+          One-time setup required.{" "}
           <a
-            href="https://apps.microsoft.com/detail/9wzdncrfj3ps"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/api/desktops/rdp-setup"
             style={{ color: "var(--accent)", textDecoration: "underline" }}
           >
-            Install from Microsoft Store
+            Download setup file
           </a>
-          , then try again.
+          , run it, and click "Yes" to register. Then try Native RDP again.
         </div>
       )}
     </div>

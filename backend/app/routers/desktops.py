@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +68,17 @@ def _get_cloudwm(tenant: Tenant) -> CloudWMClient:
 
 
 # ── Endpoints ──
+
+
+@router.get("/rdp-setup")
+async def download_rdp_setup():
+    """Download the .reg file to register the cwmvdi:// protocol handler."""
+    reg_path = Path(__file__).resolve().parent.parent / "static" / "cwmvdi-rdp-handler.reg"
+    return FileResponse(
+        reg_path,
+        media_type="application/octet-stream",
+        filename="cwmvdi-rdp-handler.reg",
+    )
 
 
 @router.get("", response_model=list[DesktopResponse])

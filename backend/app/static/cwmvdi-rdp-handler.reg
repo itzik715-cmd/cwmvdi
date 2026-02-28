@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\cwmvdi]
+@="CwmVDI Remote Desktop"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\cwmvdi\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\cwmvdi\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\cwmvdi\shell\open\command]
+@="powershell.exe -WindowStyle Hidden -Command \"$uri='%1'; $addr=$uri -replace 'cwmvdi://',''; $addr=$addr.TrimEnd('/'); Start-Process mstsc -ArgumentList ('/v:' + $addr)\""
