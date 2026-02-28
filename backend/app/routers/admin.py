@@ -3,6 +3,7 @@ import logging
 import uuid
 from datetime import datetime
 
+import psutil
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -1331,5 +1332,117 @@ async def list_networks(
         {"name": net.name, "subnet": net.subnet}
         for net in networks
     ]
+
+
+# ── System Status ──
+
+
+async def _check_postgres(db: AsyncSession) -> dict:
+    try:
+        await db.execute(select(func.count()).select_from(User))
+        return {"name": "postgres", "status": "running", "healthy": True}
+    except Exception:
+        return {"name": "postgres", "status": "down", "healthy": False}
+
+
+async def _check_redis() -> dict:
+    import redis as redis_lib
+    try:
+        r = redis_lib.from_url(settings.redis_url, socket_timeout=2)
+        r.ping()
+        return {"name": "redis", "status": "running", "healthy": True}
+    except Exception:
+        return {"name": "redis", "status": "down", "healthy": False}
+
+
+async def _check_guacamole() -> dict:
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get("http://guacamole:8080/guacamole/api/languages")
+            return {"name": "guacamole", "status": "running" if resp.status_code == 200 else "unhealthy", "healthy": resp.status_code == 200}
+    except Exception:
+        return {"name": "guacamole", "status": "down", "healthy": False}
+
+
+async def _check_guacd() -> dict:
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("guacd", 4822), timeout=3
+        )
+        writer.close()
+        await writer.wait_closed()
+        return {"name": "guacd", "status": "running", "healthy": True}
+    except Exception:
+        return {"name": "guacd", "status": "down", "healthy": False}
+
+
+@router.get("/system-status")
+async def get_system_status(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return system metrics (CPU, RAM, Disk, Network) and service statuses."""
+    loop = asyncio.get_event_loop()
+
+    # CPU (run in executor since it blocks for interval)
+    cpu_percent = await loop.run_in_executor(None, lambda: psutil.cpu_percent(interval=0.5))
+    cpu_count = psutil.cpu_count()
+
+    # RAM
+    mem = psutil.virtual_memory()
+    ram = {
+        "total_gb": round(mem.total / (1024 ** 3), 1),
+        "used_gb": round(mem.used / (1024 ** 3), 1),
+        "available_gb": round(mem.available / (1024 ** 3), 1),
+        "percent": mem.percent,
+    }
+
+    # Disk
+    disk = psutil.disk_usage("/")
+    disk_info = {
+        "total_gb": round(disk.total / (1024 ** 3), 1),
+        "used_gb": round(disk.used / (1024 ** 3), 1),
+        "free_gb": round(disk.free / (1024 ** 3), 1),
+        "percent": disk.percent,
+    }
+
+    # Network
+    net = psutil.net_io_counters()
+    network = {
+        "bytes_sent": net.bytes_sent,
+        "bytes_recv": net.bytes_recv,
+        "bytes_sent_mb": round(net.bytes_sent / (1024 ** 2), 1),
+        "bytes_recv_mb": round(net.bytes_recv / (1024 ** 2), 1),
+        "packets_sent": net.packets_sent,
+        "packets_recv": net.packets_recv,
+    }
+
+    # Services — check actual connectivity
+    services = await asyncio.gather(
+        _check_postgres(db),
+        _check_redis(),
+        _check_guacamole(),
+        _check_guacd(),
+    )
+    # Backend is obviously running if we got here
+    services_list = list(services) + [{"name": "backend", "status": "running", "healthy": True}]
+
+    # Uptime
+    boot_time = datetime.fromtimestamp(psutil.boot_time())
+    uptime_seconds = (datetime.now() - boot_time).total_seconds()
+    days = int(uptime_seconds // 86400)
+    hours = int((uptime_seconds % 86400) // 3600)
+    minutes = int((uptime_seconds % 3600) // 60)
+    uptime_str = f"{days}d {hours}h {minutes}m"
+
+    return {
+        "cpu": {"percent": cpu_percent, "cores": cpu_count},
+        "ram": ram,
+        "disk": disk_info,
+        "network": network,
+        "services": services_list,
+        "uptime": uptime_str,
+    }
 
 

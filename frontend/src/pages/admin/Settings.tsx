@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { adminApi } from "../../services/api";
 import type { TenantSettings } from "../../types";
 
@@ -7,6 +7,55 @@ interface KamateraServer {
   name: string;
   datacenter: string;
   power: string;
+}
+
+interface SystemStatus {
+  cpu: { percent: number; cores: number };
+  ram: { total_gb: number; used_gb: number; available_gb: number; percent: number };
+  disk: { total_gb: number; used_gb: number; free_gb: number; percent: number };
+  network: { bytes_sent: number; bytes_recv: number; bytes_sent_mb: number; bytes_recv_mb: number; packets_sent: number; packets_recv: number };
+  services: { name: string; status: string; healthy: boolean }[];
+  uptime: string;
+}
+
+function StatusBar({ label, percent, used, total, unit }: { label: string; percent: number; used: number; total: number; unit: string }) {
+  const color = percent > 90 ? "var(--error)" : percent > 70 ? "var(--warning)" : "var(--success)";
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {used} / {total} {unit} ({percent}%)
+        </span>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "var(--bg-hover)", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${Math.min(percent, 100)}%`, borderRadius: 4, background: color, transition: "width 0.5s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+function ServiceBadge({ name, status, healthy }: { name: string; status: string; healthy: boolean }) {
+  const displayName = name.replace(/^kamvdi-|-1$/g, "");
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 6,
+        fontSize: 12,
+        fontWeight: 500,
+        background: healthy ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+        color: healthy ? "var(--success)" : "var(--error)",
+        border: `1px solid ${healthy ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"}`,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: healthy ? "var(--success)" : "var(--error)" }} />
+      {displayName}
+    </div>
+  );
 }
 
 export default function Settings() {
@@ -38,6 +87,17 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  // System status state
+  const [sysStatus, setSysStatus] = useState<SystemStatus | null>(null);
+  const [sysLoading, setSysLoading] = useState(true);
+
+  const fetchSystemStatus = useCallback(() => {
+    adminApi.getSystemStatus()
+      .then((res) => setSysStatus(res.data))
+      .catch(() => {})
+      .finally(() => setSysLoading(false));
+  }, []);
+
   // NAT Gateway state
   const [natEnabled, setNatEnabled] = useState(false);
   const [gatewayIp, setGatewayIp] = useState("");
@@ -65,7 +125,10 @@ export default function Settings() {
 
   useEffect(() => {
     loadSettings();
-  }, []);
+    fetchSystemStatus();
+    const interval = setInterval(fetchSystemStatus, 10000);
+    return () => clearInterval(interval);
+  }, [fetchSystemStatus]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,6 +290,76 @@ export default function Settings() {
     <div>
       <div className="page-header">
         <h1>Settings</h1>
+      </div>
+
+      {/* System Status */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>System Status</h3>
+          {sysStatus && (
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Uptime: {sysStatus.uptime} &middot; Auto-refresh 10s
+            </span>
+          )}
+        </div>
+
+        {sysLoading && !sysStatus && (
+          <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+            <div className="spinner" />
+          </div>
+        )}
+
+        {sysStatus && (
+          <>
+            {/* Resource bars */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+              <div>
+                <StatusBar
+                  label={`CPU (${sysStatus.cpu.cores} cores)`}
+                  percent={sysStatus.cpu.percent}
+                  used={sysStatus.cpu.percent}
+                  total={100}
+                  unit="%"
+                />
+                <StatusBar
+                  label="RAM"
+                  percent={sysStatus.ram.percent}
+                  used={sysStatus.ram.used_gb}
+                  total={sysStatus.ram.total_gb}
+                  unit="GB"
+                />
+              </div>
+              <div>
+                <StatusBar
+                  label="Disk"
+                  percent={sysStatus.disk.percent}
+                  used={sysStatus.disk.used_gb}
+                  total={sysStatus.disk.total_gb}
+                  unit="GB"
+                />
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Network</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-muted)" }}>
+                    <span>&#8593; Sent: {sysStatus.network.bytes_sent_mb > 1024 ? `${(sysStatus.network.bytes_sent_mb / 1024).toFixed(1)} GB` : `${sysStatus.network.bytes_sent_mb} MB`}</span>
+                    <span>&#8595; Recv: {sysStatus.network.bytes_recv_mb > 1024 ? `${(sysStatus.network.bytes_recv_mb / 1024).toFixed(1)} GB` : `${sysStatus.network.bytes_recv_mb} MB`}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Services */}
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Services</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {sysStatus.services.map((s) => (
+                  <ServiceBadge key={s.name} name={s.name} status={s.status} healthy={s.healthy} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Session Settings */}

@@ -103,6 +103,7 @@ export const adminApi = {
   selectServer: (data: { server_id: string }) =>
     api.post("/admin/settings/cloudwm/select-server", data),
   syncFromConsole: () => api.post("/admin/settings/cloudwm/sync"),
+  getSystemStatus: () => api.get("/admin/system-status"),
 };
 
 // ── Auth APIs ──

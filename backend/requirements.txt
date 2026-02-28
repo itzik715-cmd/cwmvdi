@@ -16,3 +16,4 @@ celery[redis]==5.4.0
 redis==5.2.1
 python-multipart==0.0.20
 cryptography==44.0.0
+psutil==6.1.1
