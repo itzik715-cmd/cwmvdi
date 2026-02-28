@@ -83,8 +83,29 @@ export default function Desktops() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!password || password.length < 12) {
-      setError("Password must be at least 12 characters");
+    const allowed = /^[a-zA-Z0-9!@#$^&*()~]+$/;
+    if (!password || password.length < 14) {
+      setError("Password must be at least 14 characters");
+      return;
+    }
+    if (password.length > 32) {
+      setError("Password must be at most 32 characters");
+      return;
+    }
+    if (!/[a-z]/.test(password)) {
+      setError("Password must contain at least one lowercase letter");
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      setError("Password must contain at least one uppercase letter");
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      setError("Password must contain at least one number");
+      return;
+    }
+    if (!allowed.test(password)) {
+      setError("Password contains invalid characters. Allowed: a-z, A-Z, 0-9, !@#$^&*()~");
       return;
     }
     setCreating(true);
@@ -311,11 +332,13 @@ export default function Desktops() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Strong password for RDP access"
                   required
-                  minLength={12}
+                  minLength={14}
+                  maxLength={32}
                 />
-                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                  Min 12 chars. Used for RDP login to the Windows desktop.
-                </p>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  <p style={{ marginBottom: 2 }}>Allowed: a-z, A-Z, 0-9, !@#$^&amp;*()~</p>
+                  <p style={{ margin: 0 }}>14–32 chars, must include lowercase, uppercase, and number</p>
+                </div>
               </div>
 
               <div className="form-group">

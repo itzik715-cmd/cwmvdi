@@ -42,8 +42,26 @@ class CreateDesktopRequest(BaseModel):
     cpu: str = "2B"
     ram: int = 4096
     disk_size: int = 50
-    password: str = "CwmVDI2026Desk!"
+    password: str
     network_name: str | None = None  # None = use tenant default (private VLAN if NAT enabled)
+
+    @staticmethod
+    def validate_vm_password(pw: str) -> str | None:
+        """Validate password against Kamatera policy. Returns error message or None."""
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$^&*()~")
+        if len(pw) < 14:
+            return "Password must be at least 14 characters"
+        if len(pw) > 32:
+            return "Password must be at most 32 characters"
+        if not any(c.islower() for c in pw):
+            return "Password must contain at least one lowercase letter"
+        if not any(c.isupper() for c in pw):
+            return "Password must contain at least one uppercase letter"
+        if not any(c.isdigit() for c in pw):
+            return "Password must contain at least one number"
+        if not all(c in allowed for c in pw):
+            return "Password contains invalid characters. Allowed: a-z, A-Z, 0-9, !@#$^&*()~"
+        return None
 
 
 class UpdateDesktopRequest(BaseModel):
@@ -297,6 +315,10 @@ async def create_desktop(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new Windows VM — starts provisioning in background."""
+    pw_error = CreateDesktopRequest.validate_vm_password(req.password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
+
     tenant = await _get_tenant(db, admin.tenant_id)
 
     # Verify user exists
