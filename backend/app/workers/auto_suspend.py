@@ -75,24 +75,24 @@ async def _check_idle_and_suspend_async():
                 max_hours = timedelta(hours=tenant.max_session_hours)
                 if datetime.utcnow() - session.started_at > max_hours:
                     logger.info(
-                        "Session %s exceeded max duration of %d hours, powering off VM %s",
+                        "Session %s exceeded max duration of %d hours, suspending VM %s",
                         session.id, tenant.max_session_hours, desktop.cloudwm_server_id,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.power_off(desktop.cloudwm_server_id)
+                    await cloudwm.suspend(desktop.cloudwm_server_id)
                     session.ended_at = datetime.utcnow()
                     session.end_reason = "max_duration"
-                    desktop.current_state = "off"
+                    desktop.current_state = "suspended"
                     continue
 
                 # Check idle heartbeat
                 if datetime.utcnow() - last_hb > threshold:
                     logger.info(
-                        "Session %s idle for > %d min, powering off VM %s",
+                        "Session %s idle for > %d min, suspending VM %s",
                         session.id, tenant.suspend_threshold_minutes, desktop.cloudwm_server_id,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.power_off(desktop.cloudwm_server_id)
+                    await cloudwm.suspend(desktop.cloudwm_server_id)
 
                     if session.proxy_pid:
                         import os, signal
@@ -103,8 +103,8 @@ async def _check_idle_and_suspend_async():
 
                     session.ended_at = datetime.utcnow()
                     session.end_reason = "idle_timeout"
-                    desktop.current_state = "off"
-                    logger.info("Session %s ended, VM powered off", session.id)
+                    desktop.current_state = "suspended"
+                    logger.info("Session %s ended, VM suspended", session.id)
 
             except Exception:
                 logger.exception("Error checking session %s", session.id)
@@ -152,12 +152,12 @@ async def _check_idle_and_suspend_async():
 
                 if datetime.utcnow() - idle_since > threshold:
                     logger.info(
-                        "Desktop %s (%s) has no session and idle since %s, powering off",
+                        "Desktop %s (%s) has no session and idle since %s, suspending",
                         desktop.display_name, desktop.cloudwm_server_id, idle_since,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.power_off(desktop.cloudwm_server_id)
-                    desktop.current_state = "off"
+                    await cloudwm.suspend(desktop.cloudwm_server_id)
+                    desktop.current_state = "suspended"
                     logger.info("VM %s powered off (no active session)", desktop.cloudwm_server_id)
 
             except Exception:

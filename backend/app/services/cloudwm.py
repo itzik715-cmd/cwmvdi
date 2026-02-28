@@ -167,9 +167,17 @@ class CloudWMClient:
             return resp.json()
 
     async def suspend(self, server_id: str) -> dict:
-        """Suspend a VM. Kamatera doesn't support suspend, so we power off."""
-        logger.info("Suspending (powering off) VM %s", server_id)
-        return await self.power_off(server_id)
+        """PUT /server/{server_id}/power — suspend (hibernate)."""
+        async with await self._get_client() as client:
+            headers = await self._auth_headers()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            resp = await client.put(
+                f"{self.base_url}/server/{server_id}/power",
+                headers=headers,
+                content="power=suspend",
+            )
+            resp.raise_for_status()
+            return resp.json()
 
     async def resume(self, server_id: str) -> dict:
         """Resume a suspended VM by powering on."""
