@@ -9,6 +9,7 @@ celery_app = Celery(
     "cwmvdi",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=["app.workers.auto_suspend"],
 )
 
 celery_app.conf.update(
