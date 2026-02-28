@@ -72,15 +72,41 @@ def _get_cloudwm(tenant: Tenant) -> CloudWMClient:
     )
 
 
-def _verify_connection_mfa(user: User, mfa_code: str | None) -> None:
-    """Verify MFA code for desktop connections if MFA is active."""
-    if user.mfa_required and not user.mfa_enabled:
-        raise HTTPException(status_code=403, detail="MFA setup required before connecting. Please set up MFA first.")
-    if user.mfa_enabled and user.mfa_secret:
-        if not mfa_code:
-            raise HTTPException(status_code=403, detail="MFA code required to connect")
-        if not verify_totp(user.mfa_secret, mfa_code):
-            raise HTTPException(status_code=401, detail="Invalid MFA code")
+async def _verify_connection_mfa(user: User, mfa_code: str | None, db: AsyncSession) -> None:
+    """Verify MFA code for desktop connections. Uses DUO if enabled, TOTP otherwise."""
+    tenant = await _get_tenant(db, user.tenant_id)
+
+    duo_active = (
+        tenant.duo_enabled
+        and tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host
+    )
+
+    if duo_active:
+        # DUO path
+        from app.services.duo import verify_duo, DuoAuthError
+        try:
+            duo_skey = decrypt_value(tenant.duo_skey_encrypted)
+            if mfa_code:
+                await verify_duo(
+                    tenant.duo_ikey, duo_skey, tenant.duo_api_host,
+                    user.username, factor="passcode", passcode=mfa_code,
+                )
+            else:
+                await verify_duo(
+                    tenant.duo_ikey, duo_skey, tenant.duo_api_host,
+                    user.username, factor="push",
+                )
+        except DuoAuthError as e:
+            raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+    else:
+        # TOTP path
+        if user.mfa_required and not user.mfa_enabled:
+            raise HTTPException(status_code=403, detail="MFA setup required before connecting. Please set up MFA first.")
+        if user.mfa_enabled and user.mfa_secret:
+            if not mfa_code:
+                raise HTTPException(status_code=403, detail="MFA code required to connect")
+            if not verify_totp(user.mfa_secret, mfa_code):
+                raise HTTPException(status_code=401, detail="Invalid MFA code")
 
 
 # ── Endpoints ──
@@ -148,7 +174,7 @@ async def connect_desktop(
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM if needed, create Guacamole session token."""
-    _verify_connection_mfa(user, req.mfa_code)
+    await _verify_connection_mfa(user, req.mfa_code, db)
 
     result = await db.execute(
         select(DesktopAssignment).where(
@@ -234,7 +260,7 @@ async def download_rdp_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM, start TCP proxy, return .rdp file for native RDP client."""
-    _verify_connection_mfa(user, req.mfa_code)
+    await _verify_connection_mfa(user, req.mfa_code, db)
 
     result = await db.execute(
         select(DesktopAssignment).where(
@@ -307,7 +333,7 @@ async def native_rdp(
     db: AsyncSession = Depends(get_db),
 ):
     """Power on VM, start TCP proxy, return connection details for ms-rd: URI."""
-    _verify_connection_mfa(user, req.mfa_code)
+    await _verify_connection_mfa(user, req.mfa_code, db)
 
     result = await db.execute(
         select(DesktopAssignment).where(

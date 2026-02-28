@@ -87,6 +87,18 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  // DUO Security state
+  const [duoEnabled, setDuoEnabled] = useState(false);
+  const [duoIkey, setDuoIkey] = useState("");
+  const [duoSkey, setDuoSkey] = useState("");
+  const [duoApiHost, setDuoApiHost] = useState("");
+  const [duoAuthMode, setDuoAuthMode] = useState<"password_duo" | "duo_only">("password_duo");
+  const [duoSaving, setDuoSaving] = useState(false);
+  const [duoSaved, setDuoSaved] = useState(false);
+  const [duoError, setDuoError] = useState<string | null>(null);
+  const [duoTesting, setDuoTesting] = useState(false);
+  const [duoTestResult, setDuoTestResult] = useState<string | null>(null);
+
   // System status state
   const [sysStatus, setSysStatus] = useState<SystemStatus | null>(null);
   const [sysLoading, setSysLoading] = useState(true);
@@ -117,6 +129,10 @@ export default function Settings() {
       setNatEnabled(res.data.nat_gateway_enabled || false);
       setGatewayIp(res.data.gateway_lan_ip || "");
       setDefaultNetwork(res.data.default_network_name || "");
+      setDuoEnabled(res.data.duo_enabled || false);
+      setDuoIkey(res.data.duo_ikey || "");
+      setDuoApiHost(res.data.duo_api_host || "");
+      setDuoAuthMode(res.data.duo_auth_mode || "password_duo");
     });
     adminApi.getNetworks().then((res) => {
       setNetworks(res.data);
@@ -275,6 +291,51 @@ export default function Settings() {
       setNatError(err.response?.data?.detail || "Failed to save NAT settings");
     } finally {
       setNatSaving(false);
+    }
+  };
+
+  const handleDuoTest = async () => {
+    setDuoTesting(true);
+    setDuoTestResult(null);
+    setDuoError(null);
+    try {
+      await adminApi.testDuo({
+        duo_enabled: duoEnabled,
+        duo_ikey: duoIkey,
+        duo_skey: duoSkey,
+        duo_api_host: duoApiHost,
+        duo_auth_mode: duoAuthMode,
+      });
+      setDuoTestResult("DUO connection successful");
+      setTimeout(() => setDuoTestResult(null), 5000);
+    } catch (err: any) {
+      setDuoError(err.response?.data?.detail || "DUO connection test failed");
+    } finally {
+      setDuoTesting(false);
+    }
+  };
+
+  const handleDuoSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDuoSaving(true);
+    setDuoError(null);
+    setDuoSaved(false);
+    try {
+      await adminApi.updateDuo({
+        duo_enabled: duoEnabled,
+        duo_ikey: duoIkey,
+        duo_skey: duoSkey,
+        duo_api_host: duoApiHost,
+        duo_auth_mode: duoAuthMode,
+      });
+      setDuoSkey("");
+      setDuoSaved(true);
+      loadSettings();
+      setTimeout(() => setDuoSaved(false), 3000);
+    } catch (err: any) {
+      setDuoError(err.response?.data?.detail || "Failed to save DUO settings");
+    } finally {
+      setDuoSaving(false);
     }
   };
 
@@ -663,6 +724,111 @@ export default function Settings() {
           <button type="submit" className="btn-primary" disabled={natSaving}>
             {natSaving ? "Saving..." : "Save NAT Settings"}
           </button>
+        </form>
+      </div>
+
+      {/* DUO Security MFA */}
+      <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>DUO Security MFA</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+          Two-factor authentication using DUO Security. When enabled, DUO replaces
+          Google Authenticator (TOTP) for all users.
+        </p>
+
+        <form onSubmit={handleDuoSave}>
+          <div className="form-group">
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={duoEnabled}
+                onChange={(e) => setDuoEnabled(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Enable DUO Security
+            </label>
+          </div>
+
+          {duoEnabled && (
+            <>
+              <div className="form-group">
+                <label>Integration Key (ikey)</label>
+                <input
+                  type="text"
+                  value={duoIkey}
+                  onChange={(e) => setDuoIkey(e.target.value)}
+                  placeholder="DIXXXXXXXXXXXXXXXXXX"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Secret Key (skey)</label>
+                <input
+                  type="password"
+                  value={duoSkey}
+                  onChange={(e) => setDuoSkey(e.target.value)}
+                  placeholder={settings?.duo_configured ? "••••••••  (enter new to update)" : "Your DUO Secret Key"}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>API Hostname</label>
+                <input
+                  type="text"
+                  value={duoApiHost}
+                  onChange={(e) => setDuoApiHost(e.target.value)}
+                  placeholder="api-XXXXXXXX.duosecurity.com"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>User Authentication Mode</label>
+                <select
+                  value={duoAuthMode}
+                  onChange={(e) => setDuoAuthMode(e.target.value as "password_duo" | "duo_only")}
+                >
+                  <option value="password_duo">Password + DUO (recommended)</option>
+                  <option value="duo_only">DUO Only (no password for regular users)</option>
+                </select>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  {duoAuthMode === "duo_only"
+                    ? "Regular users authenticate with DUO only. Admin users always require password + DUO."
+                    : "All users authenticate with password + DUO verification."}
+                </p>
+              </div>
+            </>
+          )}
+
+          {duoError && <p className="error-msg">{duoError}</p>}
+          {duoTestResult && (
+            <p style={{ color: "var(--success)", fontSize: 13, marginBottom: 8 }}>
+              {duoTestResult}
+            </p>
+          )}
+          {duoSaved && (
+            <p style={{ color: "var(--success)", fontSize: 13, marginBottom: 8 }}>
+              DUO settings saved successfully.
+            </p>
+          )}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            {duoEnabled && (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleDuoTest}
+                disabled={duoTesting || !duoIkey || !duoApiHost || (!duoSkey && !settings?.duo_configured)}
+              >
+                {duoTesting ? "Testing..." : "Test Connection"}
+              </button>
+            )}
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={duoSaving || (duoEnabled && (!duoIkey || !duoApiHost))}
+            >
+              {duoSaving ? "Saving..." : "Save DUO Settings"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

@@ -30,6 +30,13 @@ class Tenant(Base):
     default_network_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     suspend_threshold_minutes: Mapped[int] = mapped_column(Integer, default=30)
     max_session_hours: Mapped[int] = mapped_column(Integer, default=8)
+
+    # DUO Security MFA
+    duo_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    duo_ikey: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duo_skey_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duo_api_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duo_auth_mode: Mapped[str] = mapped_column(String(20), default="password_duo")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

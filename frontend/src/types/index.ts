@@ -5,6 +5,8 @@ export interface User {
   role: "user" | "admin" | "superadmin";
   mfa_enabled: boolean;
   mfa_setup_required?: boolean;
+  mfa_type?: "totp" | "duo";
+  duo_auth_mode?: "password_duo" | "duo_only";
   must_change_password: boolean;
   tenant_id: string;
   cloudwm_setup_required?: boolean;
@@ -80,12 +82,22 @@ export interface TenantSettings {
   nat_gateway_enabled: boolean;
   gateway_lan_ip: string | null;
   default_network_name: string | null;
+  duo_enabled: boolean;
+  duo_ikey: string;
+  duo_api_host: string;
+  duo_auth_mode: "password_duo" | "duo_only";
+  duo_configured: boolean;
 }
 
 export interface LoginResponse {
   requires_mfa: boolean;
   mfa_token?: string;
   access_token?: string;
+  requires_duo?: boolean;
+  duo_token?: string;
+  duo_factors?: string[];
+  duo_devices?: Array<{ device: string; type: string; name?: string; capabilities: string[] }>;
+  mfa_type?: "totp" | "duo";
 }
 
 export interface MFASetupData {

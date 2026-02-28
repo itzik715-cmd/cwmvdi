@@ -17,9 +17,12 @@ export default function DesktopCard({ desktop, user }: Props) {
   const [showMFA, setShowMFA] = useState<"browser" | "native" | null>(null);
   const [mfaError, setMfaError] = useState<string | null>(null);
   const [mfaLoading, setMfaLoading] = useState(false);
+  const [duoPushing, setDuoPushing] = useState(false);
+  const [showDuoPasscode, setShowDuoPasscode] = useState(false);
 
-  const needsMFA = user.mfa_enabled;
-  const needsMFASetup = user.mfa_setup_required;
+  const mfaType = user.mfa_type || "totp";
+  const needsMFA = mfaType === "duo" ? true : user.mfa_enabled;
+  const needsMFASetup = mfaType === "duo" ? false : user.mfa_setup_required;
 
   const handleBrowserConnect = (mfaCode?: string) => {
     navigate(`/connecting/${desktop.id}`, { state: { mfa_code: mfaCode } });
@@ -33,6 +36,8 @@ export default function DesktopCard({ desktop, user }: Props) {
     if (needsMFA) {
       setShowMFA("browser");
       setMfaError(null);
+      setShowDuoPasscode(false);
+      setDuoPushing(false);
       return;
     }
     handleBrowserConnect();
@@ -71,6 +76,8 @@ export default function DesktopCard({ desktop, user }: Props) {
     if (needsMFA) {
       setShowMFA("native");
       setMfaError(null);
+      setShowDuoPasscode(false);
+      setDuoPushing(false);
       return;
     }
     handleNativeRDP();
@@ -93,6 +100,28 @@ export default function DesktopCard({ desktop, user }: Props) {
         setMfaLoading(false);
       }
     }
+  };
+
+  const handleDuoPush = () => {
+    setDuoPushing(true);
+    setMfaError(null);
+    if (showMFA === "browser") {
+      handleBrowserConnect(undefined);
+      setShowMFA(null);
+      setDuoPushing(false);
+    } else if (showMFA === "native") {
+      handleNativeRDP(undefined)
+        .then(() => setShowMFA(null))
+        .catch(() => setMfaError("DUO verification failed"))
+        .finally(() => setDuoPushing(false));
+    }
+  };
+
+  const closeMFA = () => {
+    setShowMFA(null);
+    setShowDuoPasscode(false);
+    setDuoPushing(false);
+    setMfaError(null);
   };
 
   return (
@@ -143,9 +172,60 @@ export default function DesktopCard({ desktop, user }: Props) {
         </div>
       )}
 
-      {/* MFA Code Modal */}
-      {showMFA && (
-        <div className="modal-overlay" onClick={() => setShowMFA(null)}>
+      {/* MFA Modal — DUO */}
+      {showMFA && mfaType === "duo" && (
+        <div className="modal-overlay" onClick={closeMFA}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400, textAlign: "center" }}>
+            <h2 style={{ marginBottom: 8 }}>DUO Verification</h2>
+            <p style={{ color: "var(--text-muted)", marginBottom: 24, fontSize: 14 }}>
+              Verify your identity to connect to {desktop.display_name}
+            </p>
+
+            {!showDuoPasscode ? (
+              <>
+                <button
+                  className="btn-primary"
+                  style={{ width: "100%", padding: 14, marginBottom: 12 }}
+                  onClick={handleDuoPush}
+                  disabled={duoPushing}
+                >
+                  {duoPushing ? "Waiting for DUO Push..." : "Send DUO Push"}
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => setShowDuoPasscode(true)}
+                  style={{ fontSize: 13 }}
+                >
+                  Enter Passcode Instead
+                </button>
+              </>
+            ) : (
+              <>
+                <MFAInput onSubmit={handleMFASubmit} error={mfaError} loading={mfaLoading} />
+                <button
+                  className="btn-ghost"
+                  onClick={() => setShowDuoPasscode(false)}
+                  style={{ fontSize: 13, marginTop: 12 }}
+                >
+                  Send Push Instead
+                </button>
+              </>
+            )}
+
+            {mfaError && !showDuoPasscode && <p className="error-msg" style={{ marginTop: 12 }}>{mfaError}</p>}
+
+            <div style={{ marginTop: 16 }}>
+              <button className="btn-ghost" onClick={closeMFA} style={{ fontSize: 13 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MFA Modal — TOTP */}
+      {showMFA && mfaType !== "duo" && (
+        <div className="modal-overlay" onClick={closeMFA}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400, textAlign: "center" }}>
             <h2 style={{ marginBottom: 8 }}>MFA Verification</h2>
             <p style={{ color: "var(--text-muted)", marginBottom: 24, fontSize: 14 }}>
@@ -153,7 +233,7 @@ export default function DesktopCard({ desktop, user }: Props) {
             </p>
             <MFAInput onSubmit={handleMFASubmit} error={mfaError} loading={mfaLoading} />
             <div style={{ marginTop: 16 }}>
-              <button className="btn-ghost" onClick={() => setShowMFA(null)} style={{ fontSize: 13 }}>
+              <button className="btn-ghost" onClick={closeMFA} style={{ fontSize: 13 }}>
                 Cancel
               </button>
             </div>

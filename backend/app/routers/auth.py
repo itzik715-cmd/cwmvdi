@@ -44,19 +44,32 @@ def _check_rate_limit(key: str) -> None:
 
 class LoginRequest(BaseModel):
     username: str
-    password: str
+    password: str | None = None
 
 
 class LoginResponse(BaseModel):
-    requires_mfa: bool
-    mfa_token: str | None = None  # temporary token for MFA step
+    requires_mfa: bool = False
+    mfa_token: str | None = None
     access_token: str | None = None
     token_type: str = "bearer"
+    # DUO fields
+    requires_duo: bool = False
+    duo_token: str | None = None
+    duo_factors: list[str] | None = None
+    duo_devices: list[dict] | None = None
+    mfa_type: str | None = None
 
 
 class MFAVerifyRequest(BaseModel):
     mfa_token: str
     code: str
+
+
+class DuoVerifyRequest(BaseModel):
+    duo_token: str
+    factor: str = "push"
+    passcode: str | None = None
+    device: str = "auto"
 
 
 class MFASetupResponse(BaseModel):
@@ -68,7 +81,7 @@ class MFASetupResponse(BaseModel):
 # ── Endpoints ──
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
@@ -81,27 +94,96 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     )
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(req.password, user.password_hash):
+    # Load tenant to check DUO settings
+    tenant = None
+    if user:
+        t_result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        tenant = t_result.scalar_one_or_none()
+
+    is_admin = user.role in ("admin", "superadmin") if user else False
+
+    # === DUO ENABLED PATH ===
+    duo_active = (
+        tenant and tenant.duo_enabled
+        and tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host
+    )
+    if duo_active:
+        from app.services.duo import DuoClient, DuoAuthError
+        from app.services.encryption import decrypt_value
+
+        # Admin always needs password; regular users depend on auth_mode
+        password_required = is_admin or tenant.duo_auth_mode == "password_duo"
+
+        if password_required:
+            if not req.password:
+                raise HTTPException(status_code=400, detail="Password is required")
+            if user is None or not verify_password(req.password, user.password_hash):
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+        else:
+            # duo_only mode for regular users
+            if user is None:
+                raise HTTPException(status_code=401, detail="Invalid username")
+
+        # DUO preauth
+        duo_skey = decrypt_value(tenant.duo_skey_encrypted)
+        duo_client = DuoClient(tenant.duo_ikey, duo_skey, tenant.duo_api_host)
+
+        try:
+            preauth_result = await duo_client.preauth(user.username)
+        except DuoAuthError as e:
+            raise HTTPException(status_code=401, detail=f"DUO error: {e.message}")
+
+        preauth_status = preauth_result.get("result")
+
+        if preauth_status == "allow":
+            token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
+            access_token = create_access_token(
+                user_id=user.id, tenant_id=user.tenant_id, role=user.role,
+                expires_delta=token_expiry,
+            )
+            return {"requires_mfa": False, "requires_duo": False, "access_token": access_token, "token_type": "bearer"}
+
+        if preauth_status == "deny":
+            raise HTTPException(status_code=401, detail="DUO denied access")
+
+        if preauth_status == "enroll":
+            raise HTTPException(status_code=401, detail="User not enrolled in DUO. Contact your administrator.")
+
+        # preauth_status == "auth" — return available factors
+        devices = preauth_result.get("devices", [])
+        factors = set()
+        for d in devices:
+            factors.update(d.get("capabilities", []))
+
+        duo_token = create_access_token(
+            user_id=user.id, tenant_id=user.tenant_id, role="duo_pending",
+        )
+        return {
+            "requires_mfa": False,
+            "requires_duo": True,
+            "duo_token": duo_token,
+            "duo_factors": list(factors),
+            "duo_devices": devices,
+            "mfa_type": "duo",
+            "token_type": "bearer",
+        }
+
+    # === TOTP PATH (DUO not enabled) ===
+    if user is None or not req.password or not verify_password(req.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
 
-    is_admin = user.role in ("admin", "superadmin")
-
-    # Role-based token expiry: admin=4h, user=12h
     token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
 
     # MFA at login is only required for admins
     if is_admin and user.mfa_enabled and user.mfa_secret:
         mfa_token = create_access_token(
-            user_id=user.id,
-            tenant_id=user.tenant_id,
-            role="mfa_pending",
+            user_id=user.id, tenant_id=user.tenant_id, role="mfa_pending",
         )
         return LoginResponse(requires_mfa=True, mfa_token=mfa_token)
 
-    # Regular users (or admins without MFA set up): issue full token
     access_token = create_access_token(
         user_id=user.id, tenant_id=user.tenant_id, role=user.role,
         expires_delta=token_expiry,
@@ -138,6 +220,59 @@ async def verify_mfa(req: MFAVerifyRequest, db: AsyncSession = Depends(get_db)):
     return LoginResponse(requires_mfa=False, access_token=access_token)
 
 
+@router.post("/verify-duo")
+async def verify_duo_endpoint(req: DuoVerifyRequest, db: AsyncSession = Depends(get_db)):
+    """Complete DUO authentication after preauth."""
+    from app.services.auth import decode_access_token
+    from app.services.duo import DuoClient, DuoAuthError
+    from app.services.encryption import decrypt_value
+    import uuid
+
+    payload = decode_access_token(req.duo_token)
+    if payload is None or payload.get("role") != "duo_pending":
+        raise HTTPException(status_code=401, detail="Invalid DUO token")
+
+    user_id = uuid.UUID(payload["sub"])
+    tenant_id = uuid.UUID(payload["tenant_id"])
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    t_result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = t_result.scalar_one_or_none()
+    if not tenant or not tenant.duo_enabled:
+        raise HTTPException(status_code=401, detail="DUO not enabled")
+
+    duo_skey = decrypt_value(tenant.duo_skey_encrypted)
+    duo_client = DuoClient(tenant.duo_ikey, duo_skey, tenant.duo_api_host)
+
+    try:
+        if req.factor == "push":
+            auth_result = await duo_client.auth_push(user.username, req.device)
+        elif req.factor == "passcode":
+            if not req.passcode:
+                raise HTTPException(status_code=400, detail="Passcode required")
+            auth_result = await duo_client.auth_passcode(user.username, req.passcode)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported factor: {req.factor}")
+    except DuoAuthError as e:
+        raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+
+    if auth_result.get("result") != "allow":
+        raise HTTPException(status_code=401, detail=auth_result.get("status_msg", "DUO denied"))
+
+    is_admin = user.role in ("admin", "superadmin")
+    token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
+
+    access_token = create_access_token(
+        user_id=user.id, tenant_id=user.tenant_id, role=user.role,
+        expires_delta=token_expiry,
+    )
+    return {"requires_mfa": False, "requires_duo": False, "access_token": access_token, "token_type": "bearer"}
+
+
 @router.post("/logout")
 async def logout():
     # JWT is stateless; client discards the token.
@@ -148,11 +283,25 @@ async def logout():
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     is_admin = user.role in ("admin", "superadmin")
 
-    # Admins always need MFA; regular users only if admin required it
-    if is_admin:
-        mfa_setup_required = not user.mfa_enabled
+    # Load tenant for DUO and setup checks
+    result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+    tenant = result.scalar_one_or_none()
+
+    duo_active = (
+        tenant and tenant.duo_enabled
+        and tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host
+    )
+
+    if duo_active:
+        # When DUO is enabled, skip TOTP setup requirement
+        mfa_setup_required = False
+        mfa_type = "duo"
     else:
-        mfa_setup_required = user.mfa_required and not user.mfa_enabled
+        mfa_type = "totp"
+        if is_admin:
+            mfa_setup_required = not user.mfa_enabled
+        else:
+            mfa_setup_required = user.mfa_required and not user.mfa_enabled
 
     data = {
         "id": str(user.id),
@@ -161,15 +310,14 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         "role": user.role,
         "mfa_enabled": user.mfa_enabled,
         "mfa_setup_required": mfa_setup_required,
+        "mfa_type": mfa_type,
         "must_change_password": user.must_change_password,
         "tenant_id": str(user.tenant_id),
     }
-    # For admin users, include cloudwm_setup_required from tenant
-    if is_admin:
-        result = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
-        tenant = result.scalar_one_or_none()
-        if tenant:
-            data["cloudwm_setup_required"] = tenant.cloudwm_setup_required
+    if duo_active:
+        data["duo_auth_mode"] = tenant.duo_auth_mode
+    if is_admin and tenant:
+        data["cloudwm_setup_required"] = tenant.cloudwm_setup_required
     return data
 
 

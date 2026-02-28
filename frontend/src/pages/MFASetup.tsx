@@ -17,7 +17,7 @@ export default function MFASetup({ user, onComplete }: Props) {
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
-    if (user.mfa_enabled) {
+    if (user.mfa_enabled || user.mfa_type === "duo") {
       navigate("/");
       return;
     }

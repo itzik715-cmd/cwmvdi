@@ -104,15 +104,21 @@ export const adminApi = {
     api.post("/admin/settings/cloudwm/select-server", data),
   syncFromConsole: () => api.post("/admin/settings/cloudwm/sync"),
   getSystemStatus: () => api.get("/admin/system-status"),
+  updateDuo: (data: { duo_enabled: boolean; duo_ikey: string; duo_skey: string; duo_api_host: string; duo_auth_mode: string }) =>
+    api.put("/admin/settings/duo", data),
+  testDuo: (data: { duo_enabled: boolean; duo_ikey: string; duo_skey: string; duo_api_host: string; duo_auth_mode: string }) =>
+    api.post("/admin/settings/duo/test", data),
 };
 
 // ── Auth APIs ──
 
 export const authApi = {
-  login: (username: string, password: string) =>
-    api.post("/auth/login", { username, password }),
+  login: (username: string, password?: string) =>
+    api.post("/auth/login", { username, password: password || undefined }),
   verifyMFA: (mfa_token: string, code: string) =>
     api.post("/auth/verify-mfa", { mfa_token, code }),
+  verifyDuo: (duo_token: string, factor: string = "push", passcode?: string, device: string = "auto") =>
+    api.post("/auth/verify-duo", { duo_token, factor, passcode, device }),
   setupMFA: () => api.post("/auth/setup-mfa"),
   confirmMFA: (code: string) =>
     api.post(`/auth/confirm-mfa?code=${encodeURIComponent(code)}`),

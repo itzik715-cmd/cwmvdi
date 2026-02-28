@@ -97,6 +97,25 @@ async def _get_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
     return tenant
 
 
+async def _verify_admin_mfa(admin: User, mfa_code: str, db: AsyncSession) -> None:
+    """Verify MFA for admin actions. Uses DUO if enabled, TOTP otherwise."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+
+    if tenant.duo_enabled and tenant.duo_ikey and tenant.duo_skey_encrypted:
+        from app.services.duo import verify_duo, DuoAuthError
+        duo_skey = decrypt_value(tenant.duo_skey_encrypted)
+        try:
+            await verify_duo(
+                tenant.duo_ikey, duo_skey, tenant.duo_api_host,
+                admin.username, factor="passcode", passcode=mfa_code,
+            )
+        except DuoAuthError as e:
+            raise HTTPException(status_code=401, detail=f"DUO verification failed: {e.message}")
+    else:
+        if not admin.mfa_secret or not verify_totp(admin.mfa_secret, mfa_code):
+            raise HTTPException(status_code=401, detail="Invalid MFA code")
+
+
 # ── Users ──
 
 
@@ -744,13 +763,7 @@ async def terminate_desktop(
     db: AsyncSession = Depends(get_db),
 ):
     """Terminate (destroy) the server and remove the desktop. Requires MFA."""
-    # Verify admin has MFA enabled
-    if not admin.mfa_enabled or not admin.mfa_secret:
-        raise HTTPException(status_code=403, detail="MFA must be enabled to terminate servers")
-
-    # Verify MFA code
-    if not verify_totp(admin.mfa_secret, req.mfa_code):
-        raise HTTPException(status_code=403, detail="Invalid MFA code")
+    await _verify_admin_mfa(admin, req.mfa_code, db)
 
     result = await db.execute(
         select(DesktopAssignment).where(
@@ -1054,6 +1067,11 @@ async def get_settings_endpoint(
         "nat_gateway_enabled": tenant.nat_gateway_enabled,
         "gateway_lan_ip": tenant.gateway_lan_ip,
         "default_network_name": tenant.default_network_name,
+        "duo_enabled": tenant.duo_enabled,
+        "duo_ikey": tenant.duo_ikey or "",
+        "duo_api_host": tenant.duo_api_host or "",
+        "duo_auth_mode": tenant.duo_auth_mode,
+        "duo_configured": bool(tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host),
     }
 
 
@@ -1332,6 +1350,79 @@ async def list_networks(
         {"name": net.name, "subnet": net.subnet}
         for net in networks
     ]
+
+
+# ── DUO Security Settings ──
+
+
+class DuoSettingsRequest(BaseModel):
+    duo_enabled: bool
+    duo_ikey: str = ""
+    duo_skey: str = ""
+    duo_api_host: str = ""
+    duo_auth_mode: str = "password_duo"
+
+
+@router.put("/settings/duo")
+async def update_duo_settings(
+    req: DuoSettingsRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save DUO Security settings."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+
+    if req.duo_enabled:
+        if not req.duo_ikey or not req.duo_api_host:
+            raise HTTPException(status_code=400, detail="Integration key and API hostname are required")
+        if not req.duo_skey and not tenant.duo_skey_encrypted:
+            raise HTTPException(status_code=400, detail="Secret key is required")
+
+    tenant.duo_enabled = req.duo_enabled
+    tenant.duo_ikey = req.duo_ikey or None
+    tenant.duo_api_host = req.duo_api_host or None
+    tenant.duo_auth_mode = req.duo_auth_mode
+
+    if req.duo_skey:
+        tenant.duo_skey_encrypted = encrypt_value(req.duo_skey)
+
+    await db.commit()
+    return {
+        "message": "DUO settings saved",
+        "duo_enabled": tenant.duo_enabled,
+        "duo_ikey": tenant.duo_ikey,
+        "duo_api_host": tenant.duo_api_host,
+        "duo_auth_mode": tenant.duo_auth_mode,
+        "duo_configured": bool(tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host),
+    }
+
+
+@router.post("/settings/duo/test")
+async def test_duo_connection(
+    req: DuoSettingsRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Test DUO API credentials without saving."""
+    from app.services.duo import DuoClient, DuoAuthError
+
+    skey = req.duo_skey
+    if not skey:
+        tenant = await _get_tenant(db, admin.tenant_id)
+        if tenant.duo_skey_encrypted:
+            skey = decrypt_value(tenant.duo_skey_encrypted)
+
+    if not skey or not req.duo_ikey or not req.duo_api_host:
+        raise HTTPException(status_code=400, detail="All DUO credentials are required for testing")
+
+    try:
+        client = DuoClient(req.duo_ikey, skey, req.duo_api_host)
+        await client.check()
+        return {"status": "ok", "message": "DUO connection successful"}
+    except DuoAuthError as e:
+        raise HTTPException(status_code=400, detail=f"DUO connection failed: {e.message}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"DUO connection failed: {str(e)}")
 
 
 # ── System Status ──
