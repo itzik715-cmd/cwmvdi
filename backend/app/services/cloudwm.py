@@ -141,56 +141,40 @@ class CloudWMClient:
             return "unknown"
 
     async def power_on(self, server_id: str) -> dict:
-        """POST /server/{server_id}/power — power on."""
+        """PUT /server/{server_id}/power — power on."""
         async with await self._get_client() as client:
-            resp = await client.post(
+            headers = await self._auth_headers()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            resp = await client.put(
                 f"{self.base_url}/server/{server_id}/power",
-                headers=await self._auth_headers(),
-                json={"power": "on"},
+                headers=headers,
+                content="power=on",
             )
             resp.raise_for_status()
             return resp.json()
 
     async def power_off(self, server_id: str) -> dict:
-        """POST /server/{server_id}/power — power off."""
+        """PUT /server/{server_id}/power — power off."""
         async with await self._get_client() as client:
-            resp = await client.post(
+            headers = await self._auth_headers()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            resp = await client.put(
                 f"{self.base_url}/server/{server_id}/power",
-                headers=await self._auth_headers(),
-                json={"power": "off"},
+                headers=headers,
+                content="power=off",
             )
             resp.raise_for_status()
             return resp.json()
 
     async def suspend(self, server_id: str) -> dict:
-        """Suspend a VM. Falls back to power off if suspend endpoint doesn't exist."""
-        try:
-            async with await self._get_client() as client:
-                resp = await client.post(
-                    f"{self.base_url}/server/{server_id}/power",
-                    headers=await self._auth_headers(),
-                    json={"power": "suspend"},
-                )
-                resp.raise_for_status()
-                return resp.json()
-        except httpx.HTTPStatusError:
-            logger.warning("Suspend not supported for %s, falling back to power off", server_id)
-            return await self.power_off(server_id)
+        """Suspend a VM. Kamatera doesn't support suspend, so we power off."""
+        logger.info("Suspending (powering off) VM %s", server_id)
+        return await self.power_off(server_id)
 
     async def resume(self, server_id: str) -> dict:
-        """Resume a suspended VM. Falls back to power on."""
-        try:
-            async with await self._get_client() as client:
-                resp = await client.post(
-                    f"{self.base_url}/server/{server_id}/power",
-                    headers=await self._auth_headers(),
-                    json={"power": "resume"},
-                )
-                resp.raise_for_status()
-                return resp.json()
-        except httpx.HTTPStatusError:
-            logger.warning("Resume not supported for %s, falling back to power on", server_id)
-            return await self.power_on(server_id)
+        """Resume a suspended VM by powering on."""
+        logger.info("Resuming (powering on) VM %s", server_id)
+        return await self.power_on(server_id)
 
     async def terminate_server(self, server_id: str) -> dict:
         """DELETE /server/{server_id} — permanently terminate and delete a server."""

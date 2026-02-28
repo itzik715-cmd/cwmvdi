@@ -644,13 +644,12 @@ async def unregister_desktop(
     if not desktop:
         raise HTTPException(status_code=404, detail="Desktop not found")
 
-    # End any active sessions
-    active_sessions = await db.execute(
-        select(Session).where(Session.desktop_id == desktop.id, Session.ended_at == None)
+    # Delete all sessions for this desktop
+    all_sessions = await db.execute(
+        select(Session).where(Session.desktop_id == desktop.id)
     )
-    for s in active_sessions.scalars().all():
-        s.ended_at = datetime.utcnow()
-        s.end_reason = "admin_unregister"
+    for s in all_sessions.scalars().all():
+        await db.delete(s)
 
     await db.delete(desktop)
     await db.commit()
@@ -702,13 +701,12 @@ async def terminate_desktop(
         logger.exception("Failed to terminate server %s", desktop.cloudwm_server_id)
         raise HTTPException(status_code=502, detail=f"Failed to terminate server: {str(e)}")
 
-    # End any active sessions
-    active_sessions = await db.execute(
-        select(Session).where(Session.desktop_id == desktop.id, Session.ended_at == None)
+    # Delete all sessions for this desktop
+    all_sessions = await db.execute(
+        select(Session).where(Session.desktop_id == desktop.id)
     )
-    for s in active_sessions.scalars().all():
-        s.ended_at = datetime.utcnow()
-        s.end_reason = "admin_terminate"
+    for s in all_sessions.scalars().all():
+        await db.delete(s)
 
     await db.delete(desktop)
     await db.commit()
