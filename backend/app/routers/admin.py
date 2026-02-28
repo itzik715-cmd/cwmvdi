@@ -692,8 +692,8 @@ async def list_active_sessions(
             "id": str(s.id),
             "user_id": str(s.user_id),
             "desktop_id": str(s.desktop_id),
-            "started_at": s.started_at.isoformat(),
-            "last_heartbeat": s.last_heartbeat.isoformat() if s.last_heartbeat else None,
+            "started_at": s.started_at.isoformat() + "Z",
+            "last_heartbeat": s.last_heartbeat.isoformat() + "Z" if s.last_heartbeat else None,
             "connection_type": s.connection_type or "browser",
         }
         for s in sessions
@@ -761,8 +761,8 @@ async def get_audit_log(
             "session_id": str(s.id),
             "user_email": users_map.get(s.user_id, "unknown"),
             "desktop_id": str(s.desktop_id),
-            "started_at": s.started_at.isoformat(),
-            "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+            "started_at": s.started_at.isoformat() + "Z",
+            "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else None,
             "end_reason": s.end_reason,
             "client_ip": s.client_ip,
         }
