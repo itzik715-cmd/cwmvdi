@@ -1,9 +1,9 @@
 // Helper script to run commands on remote server via SSH
 const {Client} = require('ssh2');
 
-const HOST = '91.228.126.46';
+const HOST = '83.229.71.162';
 const USER = 'root';
-const PASS = 'Omci295729572957';
+const KEY_PATH = require('path').join(require('os').homedir(), '.ssh', 'proxi-test-tlv');
 
 function exec(cmd, timeout = 120000) {
   return new Promise((resolve, reject) => {
@@ -32,7 +32,7 @@ function exec(cmd, timeout = 120000) {
       host: HOST,
       port: 22,
       username: USER,
-      password: PASS,
+      privateKey: require('fs').readFileSync(KEY_PATH),
       readyTimeout: 15000,
     });
   });
