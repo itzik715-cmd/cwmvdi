@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import type { User } from "../../types";
 
 interface Props {
@@ -7,83 +8,100 @@ interface Props {
 }
 
 const navItems = [
-  { to: "/admin/desktops", label: "Desktops" },
-  { to: "/admin/users", label: "Users" },
-  { to: "/admin/networks", label: "Networks" },
-  { to: "/admin/sessions", label: "Sessions" },
-  { to: "/admin/audit", label: "Audit Log" },
-  { to: "/admin/settings", label: "Settings" },
+  { to: "/admin/overview", label: "Overview", icon: "\u229E" },
+  { to: "/admin/desktops", label: "Desktops", icon: "\uD83D\uDDA5" },
+  { to: "/admin/users", label: "Users", icon: "\uD83D\uDC65" },
+  { to: "/admin/networks", label: "Networks", icon: "\uD83C\uDF10" },
+  { to: "/admin/sessions", label: "Sessions", icon: "\uD83D\uDCE1" },
+  { to: "/admin/audit", label: "Audit Log", icon: "\uD83D\uDCCB" },
+  { to: "/admin/settings", label: "Settings", icon: "\u2699" },
 ];
 
 export default function AdminLayout({ user, onLogout }: Props) {
   const navigate = useNavigate();
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    return (localStorage.getItem("vdi-theme") as "dark" | "light") || "dark";
+  });
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("vdi-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      {/* Sidebar */}
-      <aside
-        style={{
-          width: 220,
-          background: "var(--bg-card)",
-          borderRight: "1px solid var(--border)",
-          padding: "24px 0",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div style={{ padding: "0 20px", marginBottom: 32 }}>
-          <h2
-            style={{ fontSize: 18, fontWeight: 800, cursor: "pointer" }}
-            onClick={() => navigate("/")}
-          >
-            CwmVDI
-          </h2>
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-            Admin Panel
-          </p>
+    <div className="admin-shell" data-theme={theme}>
+      <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
+        <div className="sidebar-brand" onClick={() => navigate("/")}>
+          <div className="brand-icon">V</div>
+          {!collapsed && (
+            <div className="brand-text">
+              <span className="brand-name">CwmVDI</span>
+              <span className="brand-sub">Admin Console</span>
+            </div>
+          )}
         </div>
 
-        <nav style={{ flex: 1 }}>
+        <button
+          className="collapse-btn"
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? "Expand" : "Collapse"}
+        >
+          {collapsed ? "\u203A" : "\u2039"}
+        </button>
+
+        <nav className="sidebar-nav">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              style={({ isActive }) => ({
-                display: "block",
-                padding: "10px 20px",
-                fontSize: 14,
-                color: isActive ? "var(--primary)" : "var(--text-muted)",
-                background: isActive ? "rgba(59,130,246,0.1)" : "transparent",
-                borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent",
-                textDecoration: "none",
-              })}
+              className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}
+              title={collapsed ? item.label : undefined}
             >
-              {item.label}
+              <span className="nav-icon">{item.icon}</span>
+              {!collapsed && <span className="nav-label">{item.label}</span>}
             </NavLink>
           ))}
         </nav>
 
-        <div style={{ padding: "0 20px", borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{user.username}</p>
+        <div className="sidebar-footer">
           <button
-            className="btn-ghost"
-            onClick={() => navigate("/")}
-            style={{ width: "100%", marginBottom: 8, padding: "6px 12px", fontSize: 12 }}
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
-            Dashboard
+            <span>{theme === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19"}</span>
+            {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
           </button>
-          <button
-            className="btn-ghost"
-            onClick={onLogout}
-            style={{ width: "100%", padding: "6px 12px", fontSize: 12 }}
-          >
-            Logout
-          </button>
+
+          {!collapsed && (
+            <div className="user-pill">
+              <div className="user-avatar">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-info">
+                <div className="user-email">{user.username}</div>
+                <div className="user-role">{user.role}</div>
+              </div>
+            </div>
+          )}
+
+          <div className={`footer-actions ${collapsed ? "footer-actions-collapsed" : ""}`}>
+            <button className="footer-btn" onClick={() => navigate("/")} title="User Dashboard">
+              <span>{"\uD83C\uDFE0"}</span>
+              {!collapsed && <span>Dashboard</span>}
+            </button>
+            <button className="footer-btn footer-btn-danger" onClick={onLogout} title="Logout">
+              <span>{"\u23FB"}</span>
+              {!collapsed && <span>Logout</span>}
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Content */}
-      <main style={{ flex: 1, padding: 32, overflowY: "auto" }}>
+      <main className="admin-main">
         <Outlet />
       </main>
     </div>

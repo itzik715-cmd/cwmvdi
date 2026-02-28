@@ -12,6 +12,7 @@ import AdminSessions from "./pages/admin/Sessions";
 import AdminAuditLog from "./pages/admin/AuditLog";
 import AdminSettings from "./pages/admin/Settings";
 import AdminNetworks from "./pages/admin/Networks";
+import AdminOverview from "./pages/admin/AdminOverview";
 import { api } from "./services/api";
 
 function App() {
@@ -102,7 +103,8 @@ function App() {
       <Route path="/mfa-setup" element={<MFASetup user={user} />} />
       {isAdmin && (
         <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} />}>
-          <Route index element={<Navigate to="desktops" />} />
+          <Route index element={<Navigate to="overview" />} />
+          <Route path="overview" element={<AdminOverview />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="desktops" element={<AdminDesktops />} />
           <Route path="networks" element={<AdminNetworks />} />
