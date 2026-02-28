@@ -167,10 +167,10 @@ class CloudWMClient:
             return resp.json()
 
     async def suspend(self, server_id: str) -> dict:
-        """POST /svc/server/{server_id}/power/suspend — suspend (hibernate)."""
+        """PUT /svc/server/{server_id}/power/suspend — suspend (hibernate)."""
         base = self.base_url.rsplit("/service", 1)[0]
         async with await self._get_client() as client:
-            resp = await client.post(
+            resp = await client.put(
                 f"{base}/svc/server/{server_id}/power/suspend",
                 headers=await self._auth_headers(),
             )
@@ -178,10 +178,10 @@ class CloudWMClient:
             return resp.json()
 
     async def resume(self, server_id: str) -> dict:
-        """POST /svc/server/{server_id}/power/resume — resume from suspend."""
+        """PUT /svc/server/{server_id}/power/resume — resume from suspend."""
         base = self.base_url.rsplit("/service", 1)[0]
         async with await self._get_client() as client:
-            resp = await client.post(
+            resp = await client.put(
                 f"{base}/svc/server/{server_id}/power/resume",
                 headers=await self._auth_headers(),
             )
