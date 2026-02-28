@@ -100,6 +100,11 @@ CLOUDWM_API_URL=
 CLOUDWM_CLIENT_ID=
 CLOUDWM_SECRET_ENCRYPTED=
 BOUNDARY_ADDR=http://boundary:9200
+BOUNDARY_AUTH_METHOD_ID=
+BOUNDARY_ADMIN_LOGIN=admin
+BOUNDARY_ADMIN_PASSWORD=
+BOUNDARY_ORG_ID=
+BOUNDARY_TLS_INSECURE=true
 NAT_GATEWAY_ENABLED=${ENABLE_NAT:-N}
 EOF
 chmod 600 .env
@@ -164,9 +169,53 @@ if [[ "${ENABLE_NAT:-N}" =~ ^[Yy] ]]; then
   bash "$(dirname "$0")/setup-nat-gateway.sh" "${LAN_IFACE:-}" "${WAN_IFACE:-}"
 fi
 
+# ── Boundary Init ─────────────────────────────────────────
+log "Initializing Boundary..."
+
+# Create the boundary database (Boundary needs its own DB)
+docker compose exec -T postgres psql -U kamvdi -d kamvdi -c "CREATE DATABASE boundary;" 2>/dev/null || true
+
+# Stop the crashing Boundary container so we can run init cleanly
+docker compose stop boundary 2>/dev/null || true
+
+# Run boundary database init and capture the output
+BOUNDARY_INIT_OUTPUT=$(docker run --rm \
+  --network "$(basename $(pwd))_default" \
+  -v "$(pwd)/boundary/config.hcl:/boundary/config.hcl:ro" \
+  -e BOUNDARY_POSTGRES_URL="postgresql://kamvdi:${PG_PASS}@postgres:5432/boundary?sslmode=disable" \
+  hashicorp/boundary:0.16 database init -config /boundary/config.hcl 2>&1) || true
+
+# Parse the generated auth method ID, org ID, and admin password
+BOUNDARY_AUTH_METHOD_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Auth Method ID:" | head -1 | awk '{print $NF}')
+BOUNDARY_ORG_ID=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Scope ID:" | head -1 | awk '{print $NF}')
+BOUNDARY_GEN_PASSWORD=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Password:" | head -1 | awk '{print $NF}')
+BOUNDARY_LOGIN_NAME=$(echo "$BOUNDARY_INIT_OUTPUT" | grep "Login Name:" | head -1 | awk '{print $NF}')
+BOUNDARY_LOGIN_NAME=${BOUNDARY_LOGIN_NAME:-admin}
+
+if [[ -n "$BOUNDARY_AUTH_METHOD_ID" ]]; then
+  log "Boundary initialized (auth_method: ${BOUNDARY_AUTH_METHOD_ID}, org: ${BOUNDARY_ORG_ID})"
+
+  # Update .env with the generated Boundary values
+  sed -i "s|^BOUNDARY_AUTH_METHOD_ID=.*|BOUNDARY_AUTH_METHOD_ID=${BOUNDARY_AUTH_METHOD_ID}|" .env
+  sed -i "s|^BOUNDARY_ADMIN_LOGIN=.*|BOUNDARY_ADMIN_LOGIN=${BOUNDARY_LOGIN_NAME}|" .env
+  sed -i "s|^BOUNDARY_ADMIN_PASSWORD=.*|BOUNDARY_ADMIN_PASSWORD=${BOUNDARY_GEN_PASSWORD}|" .env
+  sed -i "s|^BOUNDARY_ORG_ID=.*|BOUNDARY_ORG_ID=${BOUNDARY_ORG_ID}|" .env
+else
+  warn "Could not parse Boundary init output. Boundary proxy may need manual setup."
+  warn "You can find init output in the install log."
+fi
+
+# Start Boundary again (now with initialized DB)
+docker compose start boundary
+sleep 5
+
 # ── DB Init ────────────────────────────────────────────────
 log "Initializing database..."
 docker compose exec -T backend python -m alembic upgrade head
+
+# Restart backend so it picks up the Boundary env vars
+docker compose restart backend celery
+sleep 5
 
 # ── First Admin ────────────────────────────────────────────
 log "Creating admin account..."
