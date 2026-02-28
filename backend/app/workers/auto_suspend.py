@@ -79,7 +79,10 @@ async def _check_idle_and_suspend_async():
                         session.id, tenant.max_session_hours, desktop.cloudwm_server_id,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.suspend(desktop.cloudwm_server_id)
+                    try:
+                        await cloudwm.suspend(desktop.cloudwm_server_id)
+                    except Exception:
+                        pass  # best effort
                     session.ended_at = datetime.utcnow()
                     session.end_reason = "max_duration"
                     desktop.current_state = "suspended"
@@ -92,7 +95,14 @@ async def _check_idle_and_suspend_async():
                         session.id, tenant.suspend_threshold_minutes, desktop.cloudwm_server_id,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.suspend(desktop.cloudwm_server_id)
+                    try:
+                        await cloudwm.suspend(desktop.cloudwm_server_id)
+                    except Exception:
+                        # VM may already be suspended — check state
+                        state = await cloudwm.get_server_state(desktop.cloudwm_server_id)
+                        if state not in ("suspended", "off"):
+                            raise
+                        logger.info("VM %s already %s", desktop.cloudwm_server_id, state)
 
                     if session.proxy_pid:
                         import os, signal
@@ -156,9 +166,15 @@ async def _check_idle_and_suspend_async():
                         desktop.display_name, desktop.cloudwm_server_id, idle_since,
                     )
                     cloudwm = _get_cloudwm(tenant)
-                    await cloudwm.suspend(desktop.cloudwm_server_id)
+                    try:
+                        await cloudwm.suspend(desktop.cloudwm_server_id)
+                    except Exception:
+                        state = await cloudwm.get_server_state(desktop.cloudwm_server_id)
+                        if state not in ("suspended", "off"):
+                            raise
+                        logger.info("VM %s already %s", desktop.cloudwm_server_id, state)
                     desktop.current_state = "suspended"
-                    logger.info("VM %s powered off (no active session)", desktop.cloudwm_server_id)
+                    logger.info("VM %s suspended (no active session)", desktop.cloudwm_server_id)
 
             except Exception:
                 logger.exception("Error checking idle desktop %s", desktop.id)
