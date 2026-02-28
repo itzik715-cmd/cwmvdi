@@ -64,7 +64,7 @@ export default function AdminLayout({ user, onLogout }: Props) {
         </nav>
 
         <div style={{ padding: "0 20px", borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{user.email}</p>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{user.username}</p>
           <button
             className="btn-ghost"
             onClick={() => navigate("/")}

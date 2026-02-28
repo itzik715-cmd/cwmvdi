@@ -44,7 +44,7 @@ export const desktopsApi = {
 
 export const adminApi = {
   listUsers: () => api.get("/admin/users"),
-  createUser: (data: { email: string; password: string; role?: string }) =>
+  createUser: (data: { username: string; password: string; email?: string; role?: string }) =>
     api.post("/admin/users", data),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
@@ -105,8 +105,8 @@ export const adminApi = {
 // ── Auth APIs ──
 
 export const authApi = {
-  login: (email: string, password: string, tenant_slug: string) =>
-    api.post("/auth/login", { email, password, tenant_slug }),
+  login: (username: string, password: string) =>
+    api.post("/auth/login", { username, password }),
   verifyMFA: (mfa_token: string, code: string) =>
     api.post("/auth/verify-mfa", { mfa_token, code }),
   setupMFA: () => api.post("/auth/setup-mfa"),

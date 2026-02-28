@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,8 +31,9 @@ settings = get_settings()
 
 
 class CreateUserRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
+    email: str | None = None
     role: str = "user"
 
 
@@ -110,6 +111,7 @@ async def list_users(
     return [
         {
             "id": str(u.id),
+            "username": u.username,
             "email": u.email,
             "role": u.role,
             "mfa_enabled": u.mfa_enabled,
@@ -129,14 +131,15 @@ async def create_user(
     # Check for existing user
     existing = await db.execute(
         select(User).where(
-            User.tenant_id == admin.tenant_id, User.email == req.email
+            User.tenant_id == admin.tenant_id, User.username == req.username
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="User with this email already exists")
+        raise HTTPException(status_code=409, detail="User with this username already exists")
 
     user = User(
         tenant_id=admin.tenant_id,
+        username=req.username,
         email=req.email,
         password_hash=hash_password(req.password),
         role=req.role,
@@ -145,7 +148,7 @@ async def create_user(
     await db.commit()
     await db.refresh(user)
 
-    return {"id": str(user.id), "email": user.email, "role": user.role}
+    return {"id": str(user.id), "username": user.username, "role": user.role}
 
 
 @router.delete("/users/{user_id}")
@@ -243,7 +246,7 @@ async def list_all_desktops(
     users_map = {}
     if user_ids:
         users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
-        users_map = {u.id: u.email for u in users_result.scalars().all()}
+        users_map = {u.id: u.username for u in users_result.scalars().all()}
 
     return [
         {
@@ -915,7 +918,7 @@ async def get_audit_log(
     # Get user emails
     user_ids = list(set(s.user_id for s in sessions))
     users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
-    users_map = {u.id: u.email for u in users_result.scalars().all()}
+    users_map = {u.id: u.username for u in users_result.scalars().all()}
 
     return [
         {

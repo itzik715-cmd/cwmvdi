@@ -5,6 +5,7 @@ import type { AdminUser } from "../../types";
 export default function Users() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
@@ -23,8 +24,14 @@ export default function Users() {
     setError(null);
     setLoading(true);
     try {
-      await adminApi.createUser({ email, password, role });
+      await adminApi.createUser({
+        username,
+        password,
+        email: email || undefined,
+        role,
+      });
       setShowModal(false);
+      setUsername("");
       setEmail("");
       setPassword("");
       setRole("user");
@@ -62,6 +69,7 @@ export default function Users() {
         <table>
           <thead>
             <tr>
+              <th>Username</th>
               <th>Email</th>
               <th>Role</th>
               <th>MFA</th>
@@ -73,7 +81,10 @@ export default function Users() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td>{u.email}</td>
+                <td style={{ fontWeight: 600 }}>{u.username}</td>
+                <td style={{ color: u.email ? "inherit" : "var(--text-muted)" }}>
+                  {u.email || "—"}
+                </td>
                 <td><span className="badge badge-on">{u.role}</span></td>
                 <td>{u.mfa_enabled ? "Enabled" : "Disabled"}</td>
                 <td>{u.is_active ? "Active" : "Inactive"}</td>
@@ -105,8 +116,24 @@ export default function Users() {
             <h2>Add User</h2>
             <form onSubmit={handleCreate}>
               <div className="form-group">
-                <label>Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. john"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label>Email <span style={{ color: "var(--text-muted)", fontSize: 12 }}>(optional)</span></label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="john@company.com"
+                />
               </div>
               <div className="form-group">
                 <label>Password</label>

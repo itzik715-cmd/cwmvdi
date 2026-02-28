@@ -1,6 +1,7 @@
 export interface User {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   role: "user" | "admin" | "superadmin";
   mfa_enabled: boolean;
   must_change_password: boolean;
@@ -34,7 +35,8 @@ export interface AdminDesktop extends Desktop {
 
 export interface AdminUser {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   role: string;
   mfa_enabled: boolean;
   is_active: boolean;

@@ -231,10 +231,7 @@ export default function Settings() {
 
       {/* Session Settings */}
       <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 4 }}>{settings.tenant_name}</h3>
-        <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 24 }}>
-          Tenant: {settings.tenant_slug}
-        </p>
+        <h3 style={{ marginBottom: 16 }}>Session Policies</h3>
 
         <form onSubmit={handleSave}>
           <div className="form-group">
@@ -242,16 +239,13 @@ export default function Settings() {
             <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
               Desktops will be suspended after this many minutes without a heartbeat.
             </p>
-            <select
+            <input
+              type="number"
+              min={1}
               value={suspendMinutes}
               onChange={(e) => setSuspendMinutes(Number(e.target.value))}
-            >
-              <option value={10}>10 minutes</option>
-              <option value={15}>15 minutes</option>
-              <option value={30}>30 minutes</option>
-              <option value={60}>1 hour</option>
-              <option value={120}>2 hours</option>
-            </select>
+              style={{ width: 120 }}
+            />
           </div>
 
           <div className="form-group">
@@ -259,16 +253,13 @@ export default function Settings() {
             <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
               Sessions will be automatically terminated after this duration.
             </p>
-            <select
+            <input
+              type="number"
+              min={1}
               value={maxHours}
               onChange={(e) => setMaxHours(Number(e.target.value))}
-            >
-              <option value={4}>4 hours</option>
-              <option value={8}>8 hours</option>
-              <option value={12}>12 hours</option>
-              <option value={24}>24 hours</option>
-              <option value={48}>48 hours</option>
-            </select>
+              style={{ width: 120 }}
+            />
           </div>
 
           {error && <p className="error-msg">{error}</p>}

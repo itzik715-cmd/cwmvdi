@@ -422,7 +422,7 @@ export default function Desktops() {
               <select value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)}>
                 <option value="">Unassigned</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.email}</option>
+                  <option key={u.id} value={u.id}>{u.username}</option>
                 ))}
               </select>
             </div>
@@ -521,7 +521,7 @@ export default function Desktops() {
                   <select value={importUserId} onChange={(e) => setImportUserId(e.target.value)}>
                     <option value="">Unassigned</option>
                     {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.email}</option>
+                      <option key={u.id} value={u.id}>{u.username}</option>
                     ))}
                   </select>
                 </div>
@@ -579,7 +579,7 @@ export default function Desktops() {
                 <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
                   <option value="">Select user...</option>
                   {users.map((u) => (
-                    <option key={u.id} value={u.id}>{u.email}</option>
+                    <option key={u.id} value={u.id}>{u.username}</option>
                   ))}
                 </select>
               </div>

@@ -9,9 +9,8 @@ interface Props {
 
 export default function Login({ onLogin }: Props) {
   const [step, setStep] = useState<"credentials" | "mfa">("credentials");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [tenantSlug, setTenantSlug] = useState("default");
   const [mfaToken, setMfaToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -21,14 +20,13 @@ export default function Login({ onLogin }: Props) {
     setError(null);
     setLoading(true);
     try {
-      const res = await authApi.login(email, password, tenantSlug);
+      const res = await authApi.login(username, password);
       const data: LoginResponse = res.data;
 
       if (data.requires_mfa && data.mfa_token) {
         setMfaToken(data.mfa_token);
         setStep("mfa");
       } else if (data.access_token) {
-        // No MFA — get user info and log in
         localStorage.setItem("token", data.access_token);
         const me = await authApi.me();
         onLogin(me.data, data.access_token);
@@ -78,21 +76,12 @@ export default function Login({ onLogin }: Props) {
         {step === "credentials" && (
           <form onSubmit={handleCredentials}>
             <div className="form-group">
-              <label>Tenant</label>
+              <label>Username</label>
               <input
                 type="text"
-                value={tenantSlug}
-                onChange={(e) => setTenantSlug(e.target.value)}
-                placeholder="Tenant slug"
-              />
-            </div>
-            <div className="form-group">
-              <label>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Username"
                 autoFocus
                 required
               />

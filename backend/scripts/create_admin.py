@@ -47,23 +47,34 @@ async def main():
             print(f"Tenant already exists: {tenant.name}")
 
         # Check if admin user exists
+        admin_username = os.environ.get("ADMIN_USERNAME", "vdiadmin")
         result = await db.execute(
-            select(User).where(User.tenant_id == tenant.id, User.email == settings.admin_email)
+            select(User).where(User.tenant_id == tenant.id, User.username == admin_username)
         )
         admin = result.scalar_one_or_none()
 
         if not admin:
-            admin = User(
-                tenant_id=tenant.id,
-                email=settings.admin_email,
-                password_hash=hash_password(settings.admin_password),
-                role="admin",
-                is_active=True,
+            # Also check by old email field for backwards compatibility
+            result = await db.execute(
+                select(User).where(User.tenant_id == tenant.id, User.email == settings.admin_email)
             )
-            db.add(admin)
-            print(f"Created admin user: {admin.email}")
+            admin = result.scalar_one_or_none()
+            if admin and not getattr(admin, "username", None):
+                admin.username = admin_username
+                print(f"Updated existing admin with username: {admin_username}")
+            elif not admin:
+                admin = User(
+                    tenant_id=tenant.id,
+                    username=admin_username,
+                    email=settings.admin_email,
+                    password_hash=hash_password(settings.admin_password),
+                    role="admin",
+                    is_active=True,
+                )
+                db.add(admin)
+                print(f"Created admin user: {admin_username}")
         else:
-            print(f"Admin user already exists: {admin.email}")
+            print(f"Admin user already exists: {admin_username}")
 
         await db.commit()
 

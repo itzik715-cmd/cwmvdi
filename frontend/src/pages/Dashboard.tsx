@@ -28,7 +28,7 @@ export default function Dashboard({ user, onLogout }: Props) {
               Admin
             </Link>
           )}
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{user.email}</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{user.username}</span>
           <button className="btn-ghost" onClick={onLogout} style={{ padding: "8px 16px", fontSize: 13 }}>
             Logout
           </button>

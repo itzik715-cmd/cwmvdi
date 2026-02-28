@@ -2,7 +2,7 @@ import time
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,9 +42,8 @@ def _check_rate_limit(key: str) -> None:
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
-    tenant_slug: str
 
 
 class LoginResponse(BaseModel):
@@ -74,12 +73,9 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     _check_rate_limit(client_ip)
 
     result = await db.execute(
-        select(User)
-        .join(User.tenant)
-        .where(
-            User.email == req.email,
+        select(User).where(
+            User.username == req.username,
             User.is_active == True,
-            User.tenant.has(slug=req.tenant_slug, is_active=True),
         )
     )
     user = result.scalar_one_or_none()
@@ -87,7 +83,7 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     if user is None or not verify_password(req.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid username or password",
         )
 
     if user.mfa_enabled and user.mfa_secret:
@@ -141,6 +137,7 @@ async def logout():
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     data = {
         "id": str(user.id),
+        "username": user.username,
         "email": user.email,
         "role": user.role,
         "mfa_enabled": user.mfa_enabled,
@@ -187,7 +184,7 @@ async def setup_mfa(user: User = Depends(get_current_user), db: AsyncSession = D
         raise HTTPException(status_code=400, detail="MFA already enabled")
 
     secret = generate_mfa_secret()
-    uri = get_totp_uri(secret, user.email)
+    uri = get_totp_uri(secret, user.username)
     qr = generate_qr_code_base64(uri)
 
     user.mfa_secret = secret
