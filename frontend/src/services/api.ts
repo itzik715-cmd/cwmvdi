@@ -60,6 +60,13 @@ export const adminApi = {
   updateDesktop: (id: string, data: { user_id: string | null }) =>
     api.patch(`/admin/desktops/${id}`, data),
   deleteDesktop: (id: string) => api.delete(`/admin/desktops/${id}`),
+  getUnregisteredServers: () => api.get("/admin/unregistered-servers"),
+  importServer: (data: {
+    server_id: string;
+    display_name: string;
+    user_id?: string;
+    password?: string;
+  }) => api.post("/admin/desktops/import", data),
 
   getImages: () => api.get("/admin/images"),
   getNetworks: () => api.get("/admin/networks"),

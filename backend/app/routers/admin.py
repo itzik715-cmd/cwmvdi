@@ -64,6 +64,13 @@ class CreateDesktopRequest(BaseModel):
         return None
 
 
+class ImportServerRequest(BaseModel):
+    server_id: str
+    display_name: str
+    user_id: str | None = None
+    password: str | None = None
+
+
 class UpdateDesktopRequest(BaseModel):
     user_id: str | None = None  # None = unassign
 
@@ -222,6 +229,133 @@ async def list_all_desktops(
         }
         for d in desktops
     ]
+
+
+@router.get("/unregistered-servers")
+async def list_unregistered_servers(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List Kamatera servers not yet registered as desktops."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+
+    # Get all servers from Kamatera
+    all_servers = await cloudwm.list_servers()
+
+    # Get all registered server IDs
+    result = await db.execute(
+        select(DesktopAssignment.cloudwm_server_id)
+        .where(DesktopAssignment.tenant_id == admin.tenant_id)
+    )
+    registered_ids = {row[0] for row in result.all()}
+
+    # Also exclude the system server
+    if tenant.system_server_id:
+        registered_ids.add(tenant.system_server_id)
+
+    return [
+        {
+            "id": s["id"],
+            "name": s.get("name", "Unknown"),
+            "power": s.get("power", "unknown").lower(),
+        }
+        for s in all_servers
+        if s["id"] not in registered_ids
+    ]
+
+
+@router.post("/desktops/import")
+async def import_server(
+    req: ImportServerRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import an existing Kamatera server as a managed desktop."""
+    tenant = await _get_tenant(db, admin.tenant_id)
+    if not tenant.cloudwm_client_id:
+        raise HTTPException(status_code=400, detail="CloudWM API not configured")
+
+    # Check not already registered
+    existing = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.cloudwm_server_id == req.server_id,
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Server is already registered")
+
+    cloudwm = CloudWMClient(
+        api_url=tenant.cloudwm_api_url,
+        client_id=tenant.cloudwm_client_id,
+        secret=decrypt_value(tenant.cloudwm_secret_encrypted),
+    )
+
+    # Get server details for IP
+    try:
+        server_info = await cloudwm.get_server(req.server_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Server not found in Kamatera")
+
+    # Extract private IP from networks
+    vm_ip = None
+    networks = server_info.get("networks", [])
+    if networks:
+        ips = networks[0].get("ips", [])
+        if ips:
+            vm_ip = ips[0]
+
+    # Get power state
+    power_state = "unknown"
+    try:
+        power_state = await cloudwm.get_server_state(req.server_id)
+    except Exception:
+        pass
+
+    # Validate user if provided
+    user_id = None
+    if req.user_id:
+        user_result = await db.execute(
+            select(User).where(User.id == uuid.UUID(req.user_id), User.tenant_id == admin.tenant_id)
+        )
+        if not user_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="User not found")
+        user_id = uuid.UUID(req.user_id)
+
+    # Create desktop assignment
+    desktop = DesktopAssignment(
+        user_id=user_id,
+        tenant_id=tenant.id,
+        cloudwm_server_id=req.server_id,
+        display_name=req.display_name,
+        current_state=power_state,
+        vm_private_ip=vm_ip,
+    )
+
+    if req.password:
+        desktop.vm_rdp_username = "Administrator"
+        desktop.vm_rdp_password_encrypted = encrypt_value(req.password)
+
+    db.add(desktop)
+    await db.commit()
+    await db.refresh(desktop)
+
+    return {
+        "id": str(desktop.id),
+        "display_name": desktop.display_name,
+        "cloudwm_server_id": desktop.cloudwm_server_id,
+        "current_state": desktop.current_state,
+        "vm_private_ip": desktop.vm_private_ip,
+        "message": "Server imported successfully",
+    }
 
 
 async def _provision_desktop_background(

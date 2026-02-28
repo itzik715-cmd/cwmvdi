@@ -32,6 +32,17 @@ export default function Desktops() {
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
 
+  // Import modal state
+  const [showImport, setShowImport] = useState(false);
+  const [unregisteredServers, setUnregisteredServers] = useState<{ id: string; name: string; power: string }[]>([]);
+  const [loadingServers, setLoadingServers] = useState(false);
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [importName, setImportName] = useState("");
+  const [importUserId, setImportUserId] = useState("");
+  const [importPassword, setImportPassword] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+
   const fetchDesktops = () => {
     adminApi.listDesktops().then((res) => setDesktops(res.data));
   };
@@ -158,6 +169,50 @@ export default function Desktops() {
     }
   };
 
+  const openImportModal = async () => {
+    setShowImport(true);
+    setImportingId(null);
+    setImportError(null);
+    setLoadingServers(true);
+    try {
+      const res = await adminApi.getUnregisteredServers();
+      setUnregisteredServers(res.data);
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || "Failed to load servers");
+      setUnregisteredServers([]);
+    } finally {
+      setLoadingServers(false);
+    }
+  };
+
+  const startImport = (server: { id: string; name: string }) => {
+    setImportingId(server.id);
+    setImportName(server.name);
+    setImportUserId("");
+    setImportPassword("");
+    setImportError(null);
+  };
+
+  const handleImport = async () => {
+    if (!importingId) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      await adminApi.importServer({
+        server_id: importingId,
+        display_name: importName,
+        user_id: importUserId || undefined,
+        password: importPassword || undefined,
+      });
+      setShowImport(false);
+      fetchDesktops();
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || "Failed to import server");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Split images: Windows first, then others
   const windowsImages = images.filter((i) => i.description.toLowerCase().includes("windows"));
   const otherImages = images.filter((i) => !i.description.toLowerCase().includes("windows"));
@@ -166,9 +221,14 @@ export default function Desktops() {
     <div>
       <div className="page-header">
         <h1>Desktops</h1>
-        <button className="btn-primary" onClick={openCreateModal}>
-          New Desktop
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn-ghost" onClick={openImportModal}>
+            Import Existing
+          </button>
+          <button className="btn-primary" onClick={openCreateModal}>
+            New Desktop
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: 0, overflowX: "auto" }}>
@@ -259,6 +319,125 @@ export default function Desktops() {
                 {assigning ? "Saving..." : "Save"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Server Modal */}
+      {showImport && (
+        <div className="modal-overlay" onClick={() => setShowImport(false)}>
+          <div className="modal" style={{ minWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <h2>Import Existing Server</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+              Select a Kamatera server to register as a managed desktop.
+            </p>
+
+            {loadingServers && (
+              <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+                <div className="spinner" />
+              </div>
+            )}
+
+            {!loadingServers && !importingId && (
+              <>
+                {unregisteredServers.length === 0 ? (
+                  <p style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+                    No unregistered servers found.
+                  </p>
+                ) : (
+                  <div style={{ maxHeight: 350, overflowY: "auto" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>State</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unregisteredServers.map((s) => (
+                          <tr key={s.id}>
+                            <td style={{ fontWeight: 600 }}>{s.name}</td>
+                            <td>
+                              <span style={{
+                                fontSize: 12,
+                                padding: "2px 8px",
+                                borderRadius: 4,
+                                background: s.power === "on" ? "rgba(34,197,94,0.15)" : "rgba(156,163,175,0.15)",
+                                color: s.power === "on" ? "var(--success)" : "var(--text-muted)",
+                              }}>
+                                {s.power}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-primary"
+                                style={{ padding: "4px 12px", fontSize: 12 }}
+                                onClick={() => startImport(s)}
+                              >
+                                Import
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {importingId && (
+              <div>
+                <div className="form-group">
+                  <label>Display Name</label>
+                  <input
+                    value={importName}
+                    onChange={(e) => setImportName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Assign to User (optional)</label>
+                  <select value={importUserId} onChange={(e) => setImportUserId(e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.email}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>VM Password (optional)</label>
+                  <input
+                    type="password"
+                    value={importPassword}
+                    onChange={(e) => setImportPassword(e.target.value)}
+                    placeholder="For Guacamole auto-login"
+                  />
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                    If set, browser RDP will auto-login with these credentials.
+                  </p>
+                </div>
+                {importError && <p className="error-msg">{importError}</p>}
+                <div className="modal-actions">
+                  <button type="button" className="btn-ghost" onClick={() => setImportingId(null)}>Back</button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleImport}
+                    disabled={importing || !importName}
+                  >
+                    {importing ? "Importing..." : "Import Server"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!importingId && (
+              <div className="modal-actions" style={{ marginTop: 16 }}>
+                <button type="button" className="btn-ghost" onClick={() => setShowImport(false)}>Close</button>
+              </div>
+            )}
           </div>
         </div>
       )}
