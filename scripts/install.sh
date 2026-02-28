@@ -156,6 +156,44 @@ if [[ "$USE_LE" == "false" ]]; then
   log "Self-signed certificate generated"
 fi
 
+# ── Build Agent ───────────────────────────────────────────
+log "Building KamVDI agent..."
+mkdir -p downloads
+
+if ! command -v go &>/dev/null; then
+  log "Installing Go..."
+  curl -fsSL https://go.dev/dl/go1.22.10.linux-amd64.tar.gz -o /tmp/go.tar.gz
+  tar -C /usr/local -xzf /tmp/go.tar.gz
+  rm /tmp/go.tar.gz
+fi
+export PATH=$PATH:/usr/local/go/bin
+
+cd agent
+go mod tidy 2>/dev/null
+go mod download 2>/dev/null
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
+  -ldflags "-H windowsgui -s -w -X main.Version=1.0.0" \
+  -o ../downloads/KamVDI-Setup.exe ./main.go
+cd ..
+log "Agent built"
+
+# Download Boundary CLI for Windows (agent auto-downloads from portal)
+if [[ ! -f downloads/boundary.exe ]]; then
+  log "Downloading Boundary CLI for Windows..."
+  BOUNDARY_VER="0.16.2"
+  curl -fsSL "https://releases.hashicorp.com/boundary/${BOUNDARY_VER}/boundary_${BOUNDARY_VER}_windows_amd64.zip" \
+    -o /tmp/boundary-win.zip
+  apt-get install -y -qq unzip > /dev/null 2>&1 || true
+  unzip -o /tmp/boundary-win.zip boundary.exe -d downloads/
+  rm /tmp/boundary-win.zip
+  log "Boundary CLI downloaded"
+fi
+
+# Version manifest for agent auto-updater
+cat > downloads/version.json << VEOF
+{"version":"1.0.0","min_version":"1.0.0","download_url":"/downloads/KamVDI-Setup.exe"}
+VEOF
+
 # ── Start ──────────────────────────────────────────────────
 log "Starting services..."
 docker compose up -d --build
