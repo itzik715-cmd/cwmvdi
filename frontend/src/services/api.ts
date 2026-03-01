@@ -57,6 +57,7 @@ export const adminApi = {
   toggleMfaBypass: (id: string) =>
     api.post(`/admin/users/${id}/toggle-mfa-bypass`),
 
+  getDesktopUsage: (id: string) => api.get(`/admin/desktops/${id}/usage`),
   listDesktops: () => api.get("/admin/desktops"),
   createDesktop: (data: {
     user_id: string;

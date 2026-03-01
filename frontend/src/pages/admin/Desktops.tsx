@@ -1,7 +1,21 @@
 import { useState, useEffect } from "react";
 import { adminApi } from "../../services/api";
 import StatusBadge from "../../components/StatusBadge";
-import type { AdminDesktop, AdminUser, TenantSettings } from "../../types";
+import type { AdminDesktop, AdminUser, TenantSettings, DesktopUsage } from "../../types";
+
+function formatCpu(cpu: string | null): string {
+  if (!cpu) return "—";
+  const match = cpu.match(/^(\d+)/);
+  return match ? `${match[1]} vCPU` : cpu;
+}
+function formatRam(mb: number | null): string {
+  if (!mb) return "—";
+  return mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${mb} MB`;
+}
+function formatDisk(gb: number | null): string {
+  if (!gb) return "—";
+  return `${gb} GB`;
+}
 
 export default function Desktops() {
   const [desktops, setDesktops] = useState<AdminDesktop[]>([]);
@@ -51,6 +65,11 @@ export default function Desktops() {
 
   // Per-desktop loading state for power/activate/unregister actions
   const [busyAction, setBusyAction] = useState<Record<string, string>>({});
+
+  // Usage drill-down modal
+  const [usageDesktop, setUsageDesktop] = useState<AdminDesktop | null>(null);
+  const [usageData, setUsageData] = useState<DesktopUsage | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
 
   const fetchDesktops = () => {
     adminApi.listDesktops().then((res) => setDesktops(res.data));
@@ -277,6 +296,20 @@ export default function Desktops() {
     }
   };
 
+  const openUsageModal = async (desktop: AdminDesktop) => {
+    setUsageDesktop(desktop);
+    setUsageData(null);
+    setLoadingUsage(true);
+    try {
+      const res = await adminApi.getDesktopUsage(desktop.id);
+      setUsageData(res.data);
+    } catch {
+      // silent
+    } finally {
+      setLoadingUsage(false);
+    }
+  };
+
   // Split images: Windows first, then others
   const windowsImages = images.filter((i) => i.description.toLowerCase().includes("windows"));
   const otherImages = images.filter((i) => !i.description.toLowerCase().includes("windows"));
@@ -300,6 +333,7 @@ export default function Desktops() {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Specs</th>
               <th>User</th>
               <th>Status</th>
               <th>Connection</th>
@@ -310,7 +344,20 @@ export default function Desktops() {
           <tbody>
             {desktops.map((d) => (
               <tr key={d.id}>
-                <td style={{ fontWeight: 600 }}>{d.display_name}</td>
+                <td
+                  style={{ fontWeight: 600, cursor: "pointer", color: "var(--accent)" }}
+                  onClick={() => openUsageModal(d)}
+                  title="Click to view usage"
+                >
+                  {d.display_name}
+                </td>
+                <td style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                  {d.vm_cpu || d.vm_ram_mb || d.vm_disk_gb ? (
+                    <span>{formatCpu(d.vm_cpu)} / {formatRam(d.vm_ram_mb)} / {formatDisk(d.vm_disk_gb)}</span>
+                  ) : (
+                    <span>—</span>
+                  )}
+                </td>
                 <td
                   style={{ cursor: "pointer", color: d.user_id ? "inherit" : "var(--text-muted)" }}
                   onClick={() => openAssignModal(d)}
@@ -400,7 +447,7 @@ export default function Desktops() {
             ))}
             {desktops.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
+                <td colSpan={7} style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
                   No desktops yet. Click "New Desktop" to create one.
                 </td>
               </tr>
@@ -749,6 +796,118 @@ export default function Desktops() {
               >
                 {terminating ? "Terminating..." : "Terminate Server"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Usage Modal */}
+      {usageDesktop && (
+        <div className="modal-overlay" onClick={() => setUsageDesktop(null)}>
+          <div className="modal" style={{ minWidth: 660, maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h2>{usageDesktop.display_name}</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+              {usageDesktop.user_email} &middot; {usageDesktop.cloudwm_server_id.slice(0, 12)}&hellip;
+              {(usageDesktop.vm_cpu || usageDesktop.vm_ram_mb || usageDesktop.vm_disk_gb) && (
+                <span> &middot; {formatCpu(usageDesktop.vm_cpu)} / {formatRam(usageDesktop.vm_ram_mb)} / {formatDisk(usageDesktop.vm_disk_gb)}</span>
+              )}
+            </p>
+
+            {loadingUsage && (
+              <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+                <div className="spinner" />
+              </div>
+            )}
+
+            {usageData && (
+              <>
+                {/* Usage period cards */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  {([
+                    { label: "Last 24h", data: usageData.last_24h },
+                    { label: "Last 7 Days", data: usageData.last_7d },
+                    { label: "Last 30 Days", data: usageData.last_30d },
+                  ] as const).map((p) => (
+                    <div key={p.label} className="card" style={{ padding: 14, textAlign: "center" }}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{p.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700 }}>{p.data.hours}h</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.data.session_count} sessions</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Month comparison */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>This Month</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>{usageData.current_month.hours}h</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{usageData.current_month.session_count} sessions</div>
+                  </div>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Last Month</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>{usageData.previous_month.hours}h</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{usageData.previous_month.session_count} sessions</div>
+                    {usageData.month_over_month_change !== null && (
+                      <div style={{
+                        fontSize: 12, marginTop: 4, fontWeight: 600,
+                        color: usageData.month_over_month_change >= 0 ? "var(--success)" : "var(--danger)",
+                      }}>
+                        {usageData.month_over_month_change >= 0 ? "+" : ""}{usageData.month_over_month_change}% vs this month
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recent sessions */}
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Recent Sessions</div>
+                <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageData.recent_sessions.map((s) => (
+                        <tr key={s.session_id}>
+                          <td style={{ fontSize: 13 }}>{s.user}</td>
+                          <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            {new Date(s.started_at).toLocaleString()}
+                          </td>
+                          <td style={{ fontSize: 13, fontWeight: 600 }}>{s.duration_hours}h</td>
+                          <td style={{ fontSize: 12 }}>
+                            <span style={{
+                              padding: "2px 6px", borderRadius: 4, fontSize: 11,
+                              background: s.connection_type === "native" ? "rgba(59,130,246,0.12)" : "rgba(139,92,246,0.12)",
+                              color: s.connection_type === "native" ? "#3b82f6" : "#8b5cf6",
+                            }}>
+                              {s.connection_type === "native" ? "RDP" : "Browser"}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            {s.end_reason ? s.end_reason.replace(/_/g, " ") : s.ended_at ? "ended" : "Active"}
+                          </td>
+                        </tr>
+                      ))}
+                      {usageData.recent_sessions.length === 0 && (
+                        <tr>
+                          <td colSpan={5} style={{ textAlign: "center", padding: 20, color: "var(--text-muted)" }}>
+                            No sessions recorded
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button type="button" className="btn-ghost" onClick={() => setUsageDesktop(null)}>Close</button>
             </div>
           </div>
         </div>

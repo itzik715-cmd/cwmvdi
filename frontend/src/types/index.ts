@@ -25,6 +25,7 @@ export interface Desktop {
   created_at: string | null;
   last_session_at: string | null;
   total_sessions: number;
+  usage_hours_this_month: number;
 }
 
 export interface ConnectResult {
@@ -108,6 +109,34 @@ export interface LoginResponse {
   duo_factors?: string[];
   duo_devices?: Array<{ device: string; type: string; name?: string; capabilities: string[] }>;
   mfa_type?: "totp" | "duo";
+}
+
+export interface UsagePeriod {
+  hours: number;
+  session_count: number;
+}
+
+export interface DesktopUsage {
+  desktop_id: string;
+  display_name: string;
+  vm_cpu: string | null;
+  vm_ram_mb: number | null;
+  vm_disk_gb: number | null;
+  last_24h: UsagePeriod;
+  last_7d: UsagePeriod;
+  last_30d: UsagePeriod;
+  current_month: UsagePeriod;
+  previous_month: UsagePeriod;
+  month_over_month_change: number | null;
+  recent_sessions: {
+    session_id: string;
+    user: string;
+    started_at: string;
+    ended_at: string | null;
+    duration_hours: number;
+    connection_type: string;
+    end_reason: string | null;
+  }[];
 }
 
 export interface MFASetupData {

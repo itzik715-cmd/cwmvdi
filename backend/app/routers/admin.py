@@ -3,7 +3,7 @@ import ipaddress
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 import psutil
@@ -134,6 +134,33 @@ async def _verify_admin_mfa(admin: User, mfa_code: str, db: AsyncSession) -> Non
     else:
         if not admin.mfa_secret or not verify_totp(admin.mfa_secret, mfa_code):
             raise HTTPException(status_code=401, detail="Invalid MFA code")
+
+
+def _extract_specs_from_server_info(server_info: dict) -> tuple[str | None, int | None, int | None]:
+    """Extract (vm_cpu, vm_ram_mb, vm_disk_gb) from a Kamatera server info dict."""
+    vm_cpu = None
+    vm_ram_mb = None
+    vm_disk_gb = None
+
+    cpu_raw = server_info.get("cpu")
+    if cpu_raw:
+        vm_cpu = str(cpu_raw)
+
+    ram_raw = server_info.get("ram")
+    if ram_raw:
+        try:
+            vm_ram_mb = int(ram_raw)
+        except (ValueError, TypeError):
+            pass
+
+    disk_sizes = server_info.get("diskSizes")
+    if isinstance(disk_sizes, list) and disk_sizes:
+        try:
+            vm_disk_gb = sum(int(d) for d in disk_sizes)
+        except (ValueError, TypeError):
+            pass
+
+    return vm_cpu, vm_ram_mb, vm_disk_gb
 
 
 # ── Users ──
@@ -436,6 +463,29 @@ async def list_all_desktops(
         except Exception:
             logger.warning("Failed to refresh desktop states from CloudWM")
 
+    # Lazy backfill specs for desktops missing them
+    desktops_needing_specs = [
+        d for d in desktops
+        if d.vm_cpu is None and d.cloudwm_server_id and not d.cloudwm_server_id.isdigit()
+    ]
+    if desktops_needing_specs and tenant.cloudwm_client_id:
+        try:
+            for d in desktops_needing_specs[:5]:
+                try:
+                    server_info = await cloudwm.get_server(d.cloudwm_server_id)
+                    cpu, ram, disk = _extract_specs_from_server_info(server_info)
+                    if cpu:
+                        d.vm_cpu = cpu
+                    if ram:
+                        d.vm_ram_mb = ram
+                    if disk:
+                        d.vm_disk_gb = disk
+                except Exception:
+                    logger.debug("Could not fetch specs for desktop %s", d.id)
+            await db.commit()
+        except Exception:
+            logger.warning("Failed to backfill desktop specs")
+
     # Get user emails for display
     user_ids = [d.user_id for d in desktops if d.user_id]
     users_map = {}
@@ -454,9 +504,110 @@ async def list_all_desktops(
             "vm_private_ip": d.vm_private_ip,
             "is_active": d.is_active,
             "created_at": d.created_at.isoformat(),
+            "vm_cpu": d.vm_cpu,
+            "vm_ram_mb": d.vm_ram_mb,
+            "vm_disk_gb": d.vm_disk_gb,
         }
         for d in desktops
     ]
+
+
+@router.get("/desktops/{desktop_id}/usage")
+async def get_desktop_usage(
+    desktop_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get usage statistics for a specific desktop."""
+    result = await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.id == uuid.UUID(desktop_id),
+            DesktopAssignment.tenant_id == admin.tenant_id,
+        )
+    )
+    desktop = result.scalar_one_or_none()
+    if not desktop:
+        raise HTTPException(status_code=404, detail="Desktop not found")
+
+    now = datetime.utcnow()
+
+    # Helper to compute hours + session count for a time range
+    async def _usage_for_period(since, until=None):
+        filters = [
+            Session.desktop_id == uuid.UUID(desktop_id),
+            Session.started_at >= since,
+        ]
+        if until:
+            filters.append(Session.started_at < until)
+        r = await db.execute(
+            select(
+                func.count(Session.id),
+                func.sum(
+                    func.extract("epoch",
+                        func.coalesce(Session.ended_at, func.now()) - Session.started_at
+                    )
+                ),
+            ).where(*filters)
+        )
+        count, total_seconds = r.one()
+        return {"hours": round((total_seconds or 0) / 3600, 2), "session_count": count or 0}
+
+    last_24h = await _usage_for_period(now - timedelta(hours=24))
+    last_7d = await _usage_for_period(now - timedelta(days=7))
+    last_30d = await _usage_for_period(now - timedelta(days=30))
+
+    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_month_end = current_month_start - timedelta(seconds=1)
+    prev_month_start = prev_month_end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    current_month = await _usage_for_period(current_month_start)
+    previous_month = await _usage_for_period(prev_month_start, current_month_start)
+
+    mom_change = None
+    if previous_month["hours"] > 0:
+        mom_change = round(((current_month["hours"] - previous_month["hours"]) / previous_month["hours"]) * 100, 1)
+
+    # Recent sessions (last 20)
+    result = await db.execute(
+        select(Session).where(
+            Session.desktop_id == uuid.UUID(desktop_id),
+        ).order_by(Session.started_at.desc()).limit(20)
+    )
+    sessions = result.scalars().all()
+
+    session_user_ids = list({s.user_id for s in sessions})
+    users_map = {}
+    if session_user_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(session_user_ids)))
+        users_map = {u.id: u.username for u in users_result.scalars().all()}
+
+    recent_sessions = []
+    for s in sessions:
+        duration_sec = ((s.ended_at or now) - s.started_at).total_seconds()
+        recent_sessions.append({
+            "session_id": str(s.id),
+            "user": users_map.get(s.user_id, "unknown"),
+            "started_at": s.started_at.isoformat() + "Z",
+            "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else None,
+            "duration_hours": round(duration_sec / 3600, 2),
+            "connection_type": s.connection_type,
+            "end_reason": s.end_reason,
+        })
+
+    return {
+        "desktop_id": str(desktop.id),
+        "display_name": desktop.display_name,
+        "vm_cpu": desktop.vm_cpu,
+        "vm_ram_mb": desktop.vm_ram_mb,
+        "vm_disk_gb": desktop.vm_disk_gb,
+        "last_24h": last_24h,
+        "last_7d": last_7d,
+        "last_30d": last_30d,
+        "current_month": current_month,
+        "previous_month": previous_month,
+        "month_over_month_change": mom_change,
+        "recent_sessions": recent_sessions,
+    }
 
 
 @router.get("/unregistered-servers")
@@ -545,6 +696,9 @@ async def import_server(
         if ips:
             vm_ip = ips[0]
 
+    # Extract VM specs
+    vm_cpu, vm_ram_mb, vm_disk_gb = _extract_specs_from_server_info(server_info)
+
     # Get power state
     power_state = "unknown"
     try:
@@ -570,6 +724,9 @@ async def import_server(
         display_name=req.display_name,
         current_state=power_state,
         vm_private_ip=vm_ip,
+        vm_cpu=vm_cpu,
+        vm_ram_mb=vm_ram_mb,
+        vm_disk_gb=vm_disk_gb,
     )
 
     if req.password:

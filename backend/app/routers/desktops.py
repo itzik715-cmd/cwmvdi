@@ -52,6 +52,7 @@ class DesktopResponse(BaseModel):
     created_at: str | None = None
     last_session_at: str | None = None
     total_sessions: int = 0
+    usage_hours_this_month: float = 0.0
 
 
 class ConnectResponse(BaseModel):
@@ -172,6 +173,22 @@ async def list_desktops(
             d.current_state = state
             d.last_state_check = datetime.utcnow()
 
+        # Backfill specs if missing
+        if d.vm_cpu is None and d.cloudwm_server_id and not d.cloudwm_server_id.isdigit():
+            try:
+                server_info = await cloudwm.get_server(d.cloudwm_server_id)
+                cpu_raw = server_info.get("cpu")
+                if cpu_raw:
+                    d.vm_cpu = str(cpu_raw)
+                ram_raw = server_info.get("ram")
+                if ram_raw:
+                    d.vm_ram_mb = int(ram_raw)
+                disk_sizes = server_info.get("diskSizes")
+                if isinstance(disk_sizes, list) and disk_sizes:
+                    d.vm_disk_gb = sum(int(s) for s in disk_sizes)
+            except Exception:
+                pass
+
         # Get session stats for this desktop
         from sqlalchemy import func as sqlfunc
         session_stats = await db.execute(
@@ -181,6 +198,23 @@ async def list_desktops(
             ).where(Session.desktop_id == d.id)
         )
         total_sessions, last_session_at = session_stats.one()
+
+        # Calculate usage hours for current month
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        usage_result = await db.execute(
+            select(
+                sqlfunc.sum(
+                    sqlfunc.extract("epoch",
+                        sqlfunc.coalesce(Session.ended_at, sqlfunc.now()) - Session.started_at
+                    )
+                )
+            ).where(
+                Session.desktop_id == d.id,
+                Session.started_at >= month_start,
+            )
+        )
+        total_seconds = usage_result.scalar() or 0
+        usage_hours = round(total_seconds / 3600, 1)
 
         response.append(
             DesktopResponse(
@@ -195,6 +229,7 @@ async def list_desktops(
                 created_at=d.created_at.isoformat() if d.created_at else None,
                 last_session_at=last_session_at.isoformat() if last_session_at else None,
                 total_sessions=total_sessions or 0,
+                usage_hours_this_month=usage_hours,
             )
         )
 

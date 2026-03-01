@@ -186,6 +186,10 @@ export default function DesktopCard({ desktop, user }: Props) {
           {/* Meta info */}
           <div className="dc-meta">
             <div className="dc-meta-item">
+              <span className="dc-meta-label">This Month</span>
+              <span className="dc-meta-value">{desktop.usage_hours_this_month > 0 ? `${desktop.usage_hours_this_month}h` : "0h"}</span>
+            </div>
+            <div className="dc-meta-item">
               <span className="dc-meta-label">Last Session</span>
               <span className="dc-meta-value">{timeAgo(desktop.last_session_at)}</span>
             </div>
