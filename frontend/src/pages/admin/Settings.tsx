@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { adminApi } from "../../services/api";
+import { refreshBranding } from "../../hooks/useBranding";
 import type { TenantSettings } from "../../types";
 
 interface KamateraServer {
@@ -119,6 +120,18 @@ export default function Settings() {
   const [natSaved, setNatSaved] = useState(false);
   const [natError, setNatError] = useState<string | null>(null);
 
+  // Branding state
+  const [brandName, setBrandName] = useState("");
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [faviconFile, setFaviconFile] = useState<File | null>(null);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandSaved, setBrandSaved] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
+
   const loadSettings = () => {
     adminApi.getSettings().then((res) => {
       setSettings(res.data);
@@ -133,6 +146,7 @@ export default function Settings() {
       setDuoIkey(res.data.duo_ikey || "");
       setDuoApiHost(res.data.duo_api_host || "");
       setDuoAuthMode(res.data.duo_auth_mode || "password_duo");
+      setBrandName(res.data.brand_name || "");
     });
     adminApi.getNetworks().then((res) => {
       setNetworks(res.data);
@@ -336,6 +350,80 @@ export default function Settings() {
       setDuoError(err.response?.data?.detail || "Failed to save DUO settings");
     } finally {
       setDuoSaving(false);
+    }
+  };
+
+  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      setBrandError("Logo must be under 512 KB");
+      return;
+    }
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setLogoPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleFaviconSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 256 * 1024) {
+      setBrandError("Favicon must be under 256 KB");
+      return;
+    }
+    setFaviconFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setFaviconPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleBrandSave = async () => {
+    setBrandSaving(true);
+    setBrandError(null);
+    setBrandSaved(false);
+    try {
+      const fd = new FormData();
+      fd.append("brand_name", brandName);
+      if (logoFile) fd.append("logo", logoFile);
+      if (faviconFile) fd.append("favicon", faviconFile);
+      await adminApi.updateBranding(fd);
+      setBrandSaved(true);
+      setLogoFile(null);
+      setFaviconFile(null);
+      loadSettings();
+      refreshBranding();
+      setTimeout(() => setBrandSaved(false), 3000);
+    } catch (err: any) {
+      setBrandError(err.response?.data?.detail || "Failed to save branding");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  const handleBrandReset = async () => {
+    setBrandSaving(true);
+    setBrandError(null);
+    try {
+      const fd = new FormData();
+      fd.append("brand_name", "");
+      fd.append("reset_logo", "true");
+      fd.append("reset_favicon", "true");
+      await adminApi.updateBranding(fd);
+      setBrandName("");
+      setLogoPreview(null);
+      setFaviconPreview(null);
+      setLogoFile(null);
+      setFaviconFile(null);
+      loadSettings();
+      refreshBranding();
+      setBrandSaved(true);
+      setTimeout(() => setBrandSaved(false), 3000);
+    } catch (err: any) {
+      setBrandError(err.response?.data?.detail || "Failed to reset branding");
+    } finally {
+      setBrandSaving(false);
     }
   };
 
@@ -830,6 +918,144 @@ export default function Settings() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Branding */}
+      <div className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>Branding</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+          Customize the system name, logo, and favicon shown across the portal.
+        </p>
+
+        <div className="form-group">
+          <label>Brand Name</label>
+          <input
+            type="text"
+            value={brandName}
+            onChange={(e) => setBrandName(e.target.value)}
+            placeholder="CwmVDI"
+            maxLength={100}
+          />
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+            Displayed in the header, sidebar, and login page. Leave empty for default.
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label>Logo</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              onClick={() => logoInputRef.current?.click()}
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 8,
+                border: "2px dashed var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                overflow: "hidden",
+                background: "var(--bg-hover)",
+              }}
+            >
+              {logoPreview ? (
+                <img src={logoPreview} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+              ) : settings.brand_logo_set ? (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>Current<br/>logo set</span>
+              ) : (
+                <span style={{ fontSize: 24, color: "var(--text-muted)" }}>+</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              <p>Click to upload. PNG, JPG, or SVG.</p>
+              <p>Max 512 KB. Recommended: 200x200px.</p>
+              {(logoPreview || settings.brand_logo_set) && (
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  style={{ marginTop: 4, fontSize: 11, padding: "2px 8px" }}
+                  onClick={() => { setLogoPreview(null); setLogoFile(null); }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml"
+            onChange={handleLogoSelect}
+            style={{ display: "none" }}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Favicon</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              onClick={() => faviconInputRef.current?.click()}
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 6,
+                border: "2px dashed var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                overflow: "hidden",
+                background: "var(--bg-hover)",
+              }}
+            >
+              {faviconPreview ? (
+                <img src={faviconPreview} alt="Favicon" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+              ) : settings.brand_favicon_set ? (
+                <span style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center" }}>Set</span>
+              ) : (
+                <span style={{ fontSize: 18, color: "var(--text-muted)" }}>+</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              <p>Browser tab icon. PNG, ICO, or SVG.</p>
+              <p>Max 256 KB. Recommended: 32x32px.</p>
+            </div>
+          </div>
+          <input
+            ref={faviconInputRef}
+            type="file"
+            accept="image/png,image/x-icon,image/svg+xml,image/vnd.microsoft.icon"
+            onChange={handleFaviconSelect}
+            style={{ display: "none" }}
+          />
+        </div>
+
+        {brandError && <p className="error-msg">{brandError}</p>}
+        {brandSaved && (
+          <p style={{ color: "var(--success)", fontSize: 13, marginBottom: 8 }}>
+            Branding saved successfully.
+          </p>
+        )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn-primary"
+            onClick={handleBrandSave}
+            disabled={brandSaving}
+          >
+            {brandSaving ? "Saving..." : "Save Branding"}
+          </button>
+          {(settings.brand_name || settings.brand_logo_set || settings.brand_favicon_set) && (
+            <button
+              className="btn-ghost"
+              onClick={handleBrandReset}
+              disabled={brandSaving}
+            >
+              Reset to Default
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

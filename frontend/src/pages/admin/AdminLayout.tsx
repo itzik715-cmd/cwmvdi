@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { useBranding } from "../../hooks/useBranding";
 import type { User } from "../../types";
 
 interface Props {
@@ -22,15 +23,20 @@ const navItems = [
 export default function AdminLayout({ user, onLogout, theme, toggleTheme }: Props) {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const branding = useBranding();
 
   return (
     <div className="admin-shell">
       <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
         <div className="sidebar-brand" onClick={() => navigate("/")}>
-          <div className="brand-icon">V</div>
+          {branding.logo_url ? (
+            <img src={branding.logo_url} alt="" className="brand-icon" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "contain" }} />
+          ) : (
+            <div className="brand-icon">V</div>
+          )}
           {!collapsed && (
             <div className="brand-text">
-              <span className="brand-name">CwmVDI</span>
+              <span className="brand-name">{branding.brand_name || "CwmVDI"}</span>
               <span className="brand-sub">Admin Console</span>
             </div>
           )}

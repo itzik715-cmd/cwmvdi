@@ -37,6 +37,12 @@ class Tenant(Base):
     duo_skey_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     duo_api_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     duo_auth_mode: Mapped[str] = mapped_column(String(20), default="password_duo")
+
+    # Branding
+    brand_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand_logo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    brand_favicon: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

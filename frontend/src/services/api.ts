@@ -115,6 +115,16 @@ export const adminApi = {
     api.put("/admin/settings/duo", data),
   testDuo: (data: { duo_enabled: boolean; duo_ikey: string; duo_skey: string; duo_api_host: string; duo_auth_mode: string }) =>
     api.post("/admin/settings/duo/test", data),
+  updateBranding: (formData: FormData) =>
+    api.put("/admin/settings/branding", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+};
+
+// ── Branding (public, no auth) ──
+
+export const brandingApi = {
+  get: () => axios.get("/api/branding"),
 };
 
 // ── Auth APIs ──

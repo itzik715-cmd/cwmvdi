@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { authApi } from "../services/api";
+import { useBranding } from "../hooks/useBranding";
 import MFAInput from "../components/MFAInput";
 import type { LoginResponse } from "../types";
 
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function Login({ onLogin, theme, toggleTheme }: Props) {
+  const branding = useBranding();
   const [step, setStep] = useState<"credentials" | "mfa" | "duo_push" | "duo_passcode">("credentials");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -165,7 +167,10 @@ export default function Login({ onLogin, theme, toggleTheme }: Props) {
 
       <div className="card" style={{ width: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 800 }}>CwmVDI</h1>
+          {branding.logo_url && (
+            <img src={branding.logo_url} alt="" style={{ width: 64, height: 64, objectFit: "contain", marginBottom: 12 }} />
+          )}
+          <h1 style={{ fontSize: 28, fontWeight: 800 }}>{branding.brand_name || "CwmVDI"}</h1>
           <p style={{ color: "var(--text-muted)", marginTop: 8 }}>
             Virtual Desktop Infrastructure
           </p>

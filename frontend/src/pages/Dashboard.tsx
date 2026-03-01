@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useDesktops } from "../hooks/useDesktops";
+import { useBranding } from "../hooks/useBranding";
 import DesktopCard from "../components/DesktopCard";
 import type { User } from "../types";
 
@@ -12,6 +13,7 @@ interface Props {
 
 export default function Dashboard({ user, onLogout, theme, toggleTheme }: Props) {
   const { desktops, loading, error } = useDesktops();
+  const branding = useBranding();
   const isAdmin = user.role === "admin" || user.role === "superadmin";
 
   return (
@@ -19,8 +21,12 @@ export default function Dashboard({ user, onLogout, theme, toggleTheme }: Props)
       {/* Top bar */}
       <div className="dashboard-topbar">
         <div className="dashboard-brand">
-          <div className="dashboard-brand-icon">V</div>
-          <span className="dashboard-brand-text">CwmVDI</span>
+          {branding.logo_url ? (
+            <img src={branding.logo_url} alt="" className="dashboard-brand-icon" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "contain" }} />
+          ) : (
+            <div className="dashboard-brand-icon">V</div>
+          )}
+          <span className="dashboard-brand-text">{branding.brand_name || "CwmVDI"}</span>
         </div>
         <div className="dashboard-topbar-actions">
           {!user.mfa_enabled && (

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1344,6 +1344,9 @@ async def get_settings_endpoint(
         "duo_api_host": tenant.duo_api_host or "",
         "duo_auth_mode": tenant.duo_auth_mode,
         "duo_configured": bool(tenant.duo_ikey and tenant.duo_skey_encrypted and tenant.duo_api_host),
+        "brand_name": tenant.brand_name,
+        "brand_logo_set": bool(tenant.brand_logo),
+        "brand_favicon_set": bool(tenant.brand_favicon),
     }
 
 
@@ -1710,6 +1713,60 @@ async def test_duo_connection(
         raise HTTPException(status_code=400, detail="DUO connection failed. Check your credentials.")
     except Exception:
         raise HTTPException(status_code=400, detail="DUO connection failed. Check your credentials and API hostname.")
+
+
+# ── Branding Settings ──
+
+
+@router.put("/settings/branding")
+async def update_branding(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    brand_name: str | None = Form(None),
+    logo: UploadFile | None = File(None),
+    favicon: UploadFile | None = File(None),
+    reset_logo: bool = Form(False),
+    reset_favicon: bool = Form(False),
+):
+    """Update tenant branding (logo, favicon, brand name)."""
+    import base64
+
+    tenant = await _get_tenant(db, admin.tenant_id)
+
+    if brand_name is not None:
+        tenant.brand_name = brand_name.strip() if brand_name.strip() else None
+
+    if reset_logo:
+        tenant.brand_logo = None
+    elif logo:
+        content = await logo.read()
+        if len(content) > 512 * 1024:
+            raise HTTPException(status_code=400, detail="Logo must be under 512KB")
+        ct = logo.content_type or "image/png"
+        if ct not in ("image/png", "image/jpeg", "image/svg+xml", "image/webp", "image/gif"):
+            raise HTTPException(status_code=400, detail="Logo must be PNG, JPEG, SVG, WebP, or GIF")
+        b64 = base64.b64encode(content).decode()
+        tenant.brand_logo = f"data:{ct};base64,{b64}"
+
+    if reset_favicon:
+        tenant.brand_favicon = None
+    elif favicon:
+        content = await favicon.read()
+        if len(content) > 256 * 1024:
+            raise HTTPException(status_code=400, detail="Favicon must be under 256KB")
+        ct = favicon.content_type or "image/png"
+        if ct not in ("image/png", "image/x-icon", "image/svg+xml", "image/vnd.microsoft.icon", "image/ico"):
+            raise HTTPException(status_code=400, detail="Favicon must be PNG, ICO, or SVG")
+        b64 = base64.b64encode(content).decode()
+        tenant.brand_favicon = f"data:{ct};base64,{b64}"
+
+    await db.commit()
+    return {
+        "message": "Branding updated",
+        "brand_name": tenant.brand_name,
+        "brand_logo_set": bool(tenant.brand_logo),
+        "brand_favicon_set": bool(tenant.brand_favicon),
+    }
 
 
 # ── System Status ──

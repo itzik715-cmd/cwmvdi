@@ -98,6 +98,9 @@ export interface TenantSettings {
   duo_api_host: string;
   duo_auth_mode: "password_duo" | "duo_only";
   duo_configured: boolean;
+  brand_name: string | null;
+  brand_logo_set: boolean;
+  brand_favicon_set: boolean;
 }
 
 export interface LoginResponse {
