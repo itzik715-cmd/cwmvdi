@@ -1755,8 +1755,8 @@ async def update_branding(
         if len(content) > 256 * 1024:
             raise HTTPException(status_code=400, detail="Favicon must be under 256KB")
         ct = favicon.content_type or "image/png"
-        if ct not in ("image/png", "image/x-icon", "image/svg+xml", "image/vnd.microsoft.icon", "image/ico"):
-            raise HTTPException(status_code=400, detail="Favicon must be PNG, ICO, or SVG")
+        if ct not in ("image/png", "image/jpeg", "image/x-icon", "image/svg+xml", "image/vnd.microsoft.icon", "image/ico"):
+            raise HTTPException(status_code=400, detail="Favicon must be PNG, JPG, ICO, or SVG")
         b64 = base64.b64encode(content).decode()
         tenant.brand_favicon = f"data:{ct};base64,{b64}"
 

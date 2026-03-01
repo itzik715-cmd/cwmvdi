@@ -1018,14 +1018,14 @@ export default function Settings() {
               )}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              <p>Browser tab icon. PNG, ICO, or SVG.</p>
+              <p>Browser tab icon. PNG, JPG, ICO, or SVG.</p>
               <p>Max 256 KB. Recommended: 32x32px.</p>
             </div>
           </div>
           <input
             ref={faviconInputRef}
             type="file"
-            accept="image/png,image/x-icon,image/svg+xml,image/vnd.microsoft.icon"
+            accept="image/png,image/jpeg,image/x-icon,image/svg+xml,image/vnd.microsoft.icon"
             onChange={handleFaviconSelect}
             style={{ display: "none" }}
           />
