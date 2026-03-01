@@ -742,6 +742,9 @@ async def create_desktop(
         cloudwm_server_id=str(command_id),
         display_name=req.display_name,
         current_state="provisioning",
+        vm_cpu=req.cpu,
+        vm_ram_mb=req.ram,
+        vm_disk_gb=req.disk_size,
     )
     db.add(desktop)
     await db.commit()

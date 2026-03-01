@@ -46,6 +46,12 @@ class DesktopResponse(BaseModel):
     current_state: str
     cloudwm_server_id: str
     last_state_check: str | None
+    vm_cpu: str | None = None
+    vm_ram_mb: int | None = None
+    vm_disk_gb: int | None = None
+    created_at: str | None = None
+    last_session_at: str | None = None
+    total_sessions: int = 0
 
 
 class ConnectResponse(BaseModel):
@@ -163,6 +169,16 @@ async def list_desktops(
             d.current_state = state
             d.last_state_check = datetime.utcnow()
 
+        # Get session stats for this desktop
+        from sqlalchemy import func as sqlfunc
+        session_stats = await db.execute(
+            select(
+                sqlfunc.count(Session.id),
+                sqlfunc.max(Session.started_at),
+            ).where(Session.desktop_id == d.id)
+        )
+        total_sessions, last_session_at = session_stats.one()
+
         response.append(
             DesktopResponse(
                 id=str(d.id),
@@ -170,6 +186,12 @@ async def list_desktops(
                 current_state=d.current_state,
                 cloudwm_server_id=d.cloudwm_server_id,
                 last_state_check=d.last_state_check.isoformat() if d.last_state_check else None,
+                vm_cpu=d.vm_cpu,
+                vm_ram_mb=d.vm_ram_mb,
+                vm_disk_gb=d.vm_disk_gb,
+                created_at=d.created_at.isoformat() if d.created_at else None,
+                last_session_at=last_session_at.isoformat() if last_session_at else None,
+                total_sessions=total_sessions or 0,
             )
         )
 

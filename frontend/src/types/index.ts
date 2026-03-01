@@ -18,6 +18,12 @@ export interface Desktop {
   current_state: "on" | "off" | "suspended" | "starting" | "suspending" | "provisioning" | "error" | "unknown";
   cloudwm_server_id: string;
   last_state_check: string | null;
+  vm_cpu: string | null;
+  vm_ram_mb: number | null;
+  vm_disk_gb: number | null;
+  created_at: string | null;
+  last_session_at: string | null;
+  total_sessions: number;
 }
 
 export interface ConnectResult {

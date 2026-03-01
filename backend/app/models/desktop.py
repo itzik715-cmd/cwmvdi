@@ -28,6 +28,9 @@ class DesktopAssignment(Base):
     last_state_check: Mapped[datetime | None] = mapped_column(DateTime)
     vm_rdp_username: Mapped[str | None] = mapped_column(String(100))
     vm_rdp_password_encrypted: Mapped[str | None] = mapped_column(Text)
+    vm_cpu: Mapped[str | None] = mapped_column(String(10))  # e.g. "2B", "4A"
+    vm_ram_mb: Mapped[int | None] = mapped_column(Integer)    # e.g. 4096
+    vm_disk_gb: Mapped[int | None] = mapped_column(Integer)   # e.g. 50
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

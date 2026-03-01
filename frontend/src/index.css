@@ -793,3 +793,365 @@ tbody tr:hover { background: var(--bg-hover); }
   color: var(--primary);
   border-color: transparent;
 }
+
+/* ============================================================
+   Dashboard Page (User My Desktops)
+   ============================================================ */
+
+.dashboard-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.dashboard-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 32px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--primary), var(--purple));
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-brand-text {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.dashboard-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-user-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 20px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+}
+
+.dashboard-user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--purple));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-username {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dashboard-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 32px;
+}
+
+.dashboard-header {
+  margin-bottom: 32px;
+}
+
+.dashboard-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--text) 0%, var(--text-muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dashboard-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.dashboard-empty {
+  text-align: center;
+  padding: 80px 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.dashboard-empty-icon {
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+.dashboard-empty h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.dashboard-empty p {
+  font-size: 14px;
+  color: var(--text-dim);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* Desktop card grid */
+.desktop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+/* ============================================================
+   Desktop Card
+   ============================================================ */
+
+.desktop-card {
+  background: var(--bg-card);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.desktop-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px var(--shadow);
+}
+
+.dc-status-bar {
+  height: 3px;
+  width: 100%;
+}
+
+.dc-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.dc-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--primary-glow);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dc-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.2px;
+}
+
+.dc-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.dc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Specs grid */
+.dc-specs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-card-2);
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+
+.dc-spec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dc-spec-icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.dc-spec-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dc-spec-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Meta info */
+.dc-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dc-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dc-meta-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dc-meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Action buttons */
+.dc-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dc-btn-primary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dc-btn-primary:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 16px rgba(79,142,247,0.3);
+}
+
+.dc-btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dc-btn-secondary:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+.dc-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dc-setup-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-card-2);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  line-height: 1.5;
+}
+
+.dc-setup-link {
+  color: var(--primary);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .desktop-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-content {
+    padding: 24px 16px;
+  }
+  .dashboard-topbar {
+    padding: 12px 16px;
+  }
+  .dc-specs {
+    grid-template-columns: 1fr;
+  }
+}
