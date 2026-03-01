@@ -30,13 +30,13 @@ export default function AdminLayout({ user, onLogout, theme, toggleTheme }: Prop
       <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
         <div className="sidebar-brand" onClick={() => navigate("/")}>
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt="" className="brand-icon" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "contain" }} />
+            <img src={branding.logo_url} alt="" style={{ width: 36, height: 36, objectFit: "contain", flexShrink: 0 }} />
           ) : (
             <div className="brand-icon">V</div>
           )}
           {!collapsed && (
             <div className="brand-text">
-              <span className="brand-name">{branding.brand_name || "CwmVDI"}</span>
+              <span className="brand-name" style={branding.brand_name ? { color: "#3b82f6" } : undefined}>{branding.brand_name || "CwmVDI"}</span>
               <span className="brand-sub">Admin Console</span>
             </div>
           )}

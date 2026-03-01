@@ -22,11 +22,11 @@ export default function Dashboard({ user, onLogout, theme, toggleTheme }: Props)
       <div className="dashboard-topbar">
         <div className="dashboard-brand">
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt="" className="dashboard-brand-icon" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "contain" }} />
+            <img src={branding.logo_url} alt="" style={{ width: 38, height: 38, objectFit: "contain" }} />
           ) : (
             <div className="dashboard-brand-icon">V</div>
           )}
-          <span className="dashboard-brand-text">{branding.brand_name || "CwmVDI"}</span>
+          <span className="dashboard-brand-text" style={branding.brand_name ? { color: "#3b82f6" } : undefined}>{branding.brand_name || "CwmVDI"}</span>
         </div>
         <div className="dashboard-topbar-actions">
           {!user.mfa_enabled && (
