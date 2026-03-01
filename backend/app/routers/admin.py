@@ -281,6 +281,37 @@ async def disable_mfa(
     return {"message": "MFA disabled for user"}
 
 
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=256)
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_password(
+    user_id: str,
+    req: ResetPasswordRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin resets a user's password."""
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    errors = validate_password_strength(req.new_password)
+    if errors:
+        raise HTTPException(status_code=400, detail=errors[0])
+
+    user.password_hash = hash_password(req.new_password)
+    await db.commit()
+    logger.info("Admin %s reset password for user %s", admin.username, user.username)
+    return {"message": "Password reset successfully"}
+
+
 # ── Desktops ──
 
 

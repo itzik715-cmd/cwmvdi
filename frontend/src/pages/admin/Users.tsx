@@ -14,6 +14,12 @@ export default function Users() {
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [mfaBusyId, setMfaBusyId] = useState<string | null>(null);
 
+  // Reset password modal state
+  const [resetPwUser, setResetPwUser] = useState<AdminUser | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [resetPwError, setResetPwError] = useState<string | null>(null);
+  const [resetPwLoading, setResetPwLoading] = useState(false);
+
   const fetchUsers = () => {
     adminApi.listUsers().then((res) => setUsers(res.data));
   };
@@ -68,6 +74,22 @@ export default function Users() {
       alert(err.response?.data?.detail || "MFA action failed");
     } finally {
       setMfaBusyId(null);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPwUser) return;
+    setResetPwError(null);
+    setResetPwLoading(true);
+    try {
+      await adminApi.resetPassword(resetPwUser.id, newPassword);
+      setResetPwUser(null);
+      setNewPassword("");
+    } catch (err: any) {
+      setResetPwError(err.response?.data?.detail || "Failed to reset password");
+    } finally {
+      setResetPwLoading(false);
     }
   };
 
@@ -155,16 +177,31 @@ export default function Users() {
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td>
-                    {u.is_active && (
-                      <button
-                        className="btn-danger"
-                        style={{ padding: "4px 12px", fontSize: 12 }}
-                        onClick={() => handleDelete(u.id)}
-                        disabled={deactivatingId === u.id}
-                      >
-                        {deactivatingId === u.id ? "Deactivating..." : "Deactivate"}
-                      </button>
-                    )}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {u.is_active && (
+                        <>
+                          <button
+                            className="btn-ghost"
+                            style={{ padding: "4px 12px", fontSize: 12 }}
+                            onClick={() => {
+                              setResetPwUser(u);
+                              setNewPassword("");
+                              setResetPwError(null);
+                            }}
+                          >
+                            Reset Password
+                          </button>
+                          <button
+                            className="btn-danger"
+                            style={{ padding: "4px 12px", fontSize: 12 }}
+                            onClick={() => handleDelete(u.id)}
+                            disabled={deactivatingId === u.id}
+                          >
+                            {deactivatingId === u.id ? "Deactivating..." : "Deactivate"}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -215,6 +252,39 @@ export default function Users() {
                 <button type="button" className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={loading}>
                   {loading ? "Creating..." : "Create User"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetPwUser && (
+        <div className="modal-overlay" onClick={() => setResetPwUser(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Reset Password</h2>
+            <p style={{ color: "var(--text-muted)", marginBottom: 16 }}>
+              Set a new password for <strong>{resetPwUser.username}</strong>
+            </p>
+            <form onSubmit={handleResetPassword}>
+              <div className="form-group">
+                <label>New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  required
+                  autoFocus
+                  minLength={8}
+                />
+              </div>
+              {resetPwError && <p className="error-msg">{resetPwError}</p>}
+              <div className="modal-actions">
+                <button type="button" className="btn-ghost" onClick={() => setResetPwUser(null)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={resetPwLoading}>
+                  {resetPwLoading ? "Resetting..." : "Reset Password"}
                 </button>
               </div>
             </form>
