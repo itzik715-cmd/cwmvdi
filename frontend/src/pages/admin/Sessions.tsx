@@ -55,9 +55,11 @@ export default function Sessions() {
               <th>Session ID</th>
               <th>User</th>
               <th>Desktop</th>
+              <th>Type</th>
+              <th>Proxy Port</th>
+              <th>Client IP</th>
               <th>Started</th>
               <th>Last Heartbeat</th>
-              <th>Type</th>
               <th></th>
             </tr>
           </thead>
@@ -69,14 +71,20 @@ export default function Sessions() {
                 </td>
                 <td>{s.user_id.slice(0, 8)}...</td>
                 <td>{s.desktop_id.slice(0, 8)}...</td>
+                <td style={{ fontSize: 13 }}>
+                  {s.connection_type === "native" ? "Native RDP" : "Browser"}
+                </td>
+                <td style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 600 }}>
+                  {s.proxy_port || "\u2014"}
+                </td>
+                <td style={{ fontSize: 13, fontFamily: "monospace" }}>
+                  {s.client_ip || "\u2014"}
+                </td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   {new Date(s.started_at).toLocaleString()}
                 </td>
                 <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   {timeSince(s.last_heartbeat)}
-                </td>
-                <td style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  {s.connection_type === "native" ? "Native RDP" : "Browser"}
                 </td>
                 <td>
                   <button
@@ -93,7 +101,7 @@ export default function Sessions() {
             {sessions.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   style={{
                     textAlign: "center",
                     padding: 40,

@@ -54,6 +54,8 @@ export interface AdminSession {
   started_at: string;
   last_heartbeat: string | null;
   connection_type: "browser" | "native";
+  proxy_port: number | null;
+  client_ip: string | null;
 }
 
 export interface AuditEntry {

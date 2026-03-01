@@ -994,6 +994,8 @@ async def list_active_sessions(
             "started_at": s.started_at.isoformat() + "Z",
             "last_heartbeat": s.last_heartbeat.isoformat() + "Z" if s.last_heartbeat else None,
             "connection_type": s.connection_type or "browser",
+            "proxy_port": s.proxy_port,
+            "client_ip": s.client_ip,
         }
         for s in sessions
     ]
@@ -1025,7 +1027,7 @@ async def force_terminate_session(
     if session.proxy_pid:
         from app.services.rdp_proxy import RDPProxyManager
         proxy_mgr = RDPProxyManager()
-        await proxy_mgr.stop_proxy(session.proxy_pid)
+        await proxy_mgr.stop_proxy(session.proxy_pid, port=session.proxy_port)
 
     await db.commit()
     return {"message": "Session terminated"}

@@ -26,6 +26,17 @@ router = APIRouter()
 settings = get_settings()
 
 
+def _get_client_ip(request: Request) -> str | None:
+    """Extract the real client IP, respecting X-Real-IP / X-Forwarded-For from nginx."""
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 # ── Schemas ──
 
 
@@ -234,7 +245,7 @@ async def connect_desktop(
     )
 
     # 3. Create session record
-    client_ip = request.client.host if request.client else None
+    client_ip = _get_client_ip(request)
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
@@ -299,7 +310,7 @@ async def download_rdp_file(
 
     # 2. Start socat proxy (restricted to client IP)
     proxy_mgr = RDPProxyManager()
-    client_ip = request.client.host if request.client else None
+    client_ip = _get_client_ip(request)
     port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip, client_ip=client_ip)
 
     # 3. Create session record
@@ -375,7 +386,7 @@ async def native_rdp(
 
     # 2. Start socat proxy (restricted to client IP)
     proxy_mgr = RDPProxyManager()
-    client_ip = request.client.host if request.client else None
+    client_ip = _get_client_ip(request)
     port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip, client_ip=client_ip)
 
     # 3. Create session record

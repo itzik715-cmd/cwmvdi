@@ -288,6 +288,7 @@ export default function AdminOverview() {
               <th>User</th>
               <th>Desktop</th>
               <th>Session Type</th>
+              <th>Port / Client IP</th>
               <th>Duration</th>
               <th>Last Heartbeat</th>
               <th>Status</th>
@@ -296,7 +297,7 @@ export default function AdminOverview() {
           <tbody>
             {sessions.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+                <td colSpan={7} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
                   No active sessions
                 </td>
               </tr>
@@ -317,6 +318,16 @@ export default function AdminOverview() {
                     <span className={`type-badge ${s.connection_type === "native" ? "type-native" : "type-browser"}`}>
                       {s.connection_type === "native" ? "\uD83D\uDDA5 Native RDP" : "\uD83C\uDF10 Browser"}
                     </span>
+                  </td>
+                  <td style={{ fontSize: 12, fontFamily: "monospace" }}>
+                    {s.proxy_port ? (
+                      <div>
+                        <div style={{ fontWeight: 600 }}>:{s.proxy_port}</div>
+                        <div style={{ color: "var(--text-muted)" }}>{s.client_ip || "\u2014"}</div>
+                      </div>
+                    ) : (
+                      <span style={{ color: "var(--text-muted)" }}>{s.client_ip || "\u2014"}</span>
+                    )}
                   </td>
                   <td style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(s.started_at)}</td>
                   <td>
