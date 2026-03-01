@@ -217,6 +217,36 @@ async def delete_user(
     return {"message": "User deactivated"}
 
 
+class UpdateRoleRequest(BaseModel):
+    role: str = Field(..., pattern=r"^(user|admin|superadmin)$")
+
+
+@router.post("/users/{user_id}/role")
+async def update_user_role(
+    user_id: str,
+    req: UpdateRoleRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change a user's role (user, admin, superadmin)."""
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    user.role = req.role
+    await db.commit()
+    logger.info("Admin %s changed user %s role to %s", admin.username, user.username, req.role)
+    return {"message": f"Role updated to {req.role}"}
+
+
 @router.post("/users/{user_id}/require-mfa")
 async def require_mfa(
     user_id: str,

@@ -52,6 +52,8 @@ export const adminApi = {
   disableMFA: (id: string) => api.post(`/admin/users/${id}/disable-mfa`),
   resetPassword: (id: string, new_password: string) =>
     api.post(`/admin/users/${id}/reset-password`, { new_password }),
+  updateRole: (id: string, role: string) =>
+    api.post(`/admin/users/${id}/role`, { role }),
 
   listDesktops: () => api.get("/admin/desktops"),
   createDesktop: (data: {

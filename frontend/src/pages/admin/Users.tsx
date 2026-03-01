@@ -13,6 +13,7 @@ export default function Users() {
   const [loading, setLoading] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [mfaBusyId, setMfaBusyId] = useState<string | null>(null);
+  const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
 
   // Reset password modal state
   const [resetPwUser, setResetPwUser] = useState<AdminUser | null>(null);
@@ -93,6 +94,18 @@ export default function Users() {
     }
   };
 
+  const handleRoleChange = async (id: string, newRole: string) => {
+    setRoleBusyId(id);
+    try {
+      await adminApi.updateRole(id, newRole);
+      fetchUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to update role");
+    } finally {
+      setRoleBusyId(null);
+    }
+  };
+
   const getMfaStatus = (u: AdminUser): { label: string; color: string } => {
     if (u.mfa_enabled) return { label: "Active", color: "var(--success)" };
     if (u.mfa_required) return { label: "Pending Setup", color: "var(--warning)" };
@@ -130,7 +143,31 @@ export default function Users() {
                   <td style={{ color: u.email ? "inherit" : "var(--text-muted)" }}>
                     {u.email || "—"}
                   </td>
-                  <td><span className="badge badge-on">{u.role}</span></td>
+                  <td>
+                    {u.is_active ? (
+                      <select
+                        value={u.role}
+                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                        disabled={roleBusyId === u.id}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          borderRadius: 6,
+                          border: "1px solid var(--border)",
+                          background: "var(--card-bg)",
+                          color: "var(--text)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <option value="user">user</option>
+                        <option value="admin">admin</option>
+                        <option value="superadmin">superadmin</option>
+                      </select>
+                    ) : (
+                      <span className="badge badge-on">{u.role}</span>
+                    )}
+                  </td>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ color: mfa.color, fontWeight: 600, fontSize: 12 }}>
