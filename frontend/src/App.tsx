@@ -13,12 +13,14 @@ import AdminAuditLog from "./pages/admin/AuditLog";
 import AdminSettings from "./pages/admin/Settings";
 import AdminNetworks from "./pages/admin/Networks";
 import AdminOverview from "./pages/admin/AdminOverview";
+import { useTheme } from "./hooks/useTheme";
 import { api } from "./services/api";
 
 function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const { theme, toggleTheme } = useTheme();
 
   const fetchUser = () => {
     api
@@ -59,7 +61,7 @@ function App() {
   };
 
   if (!user) {
-    return <Login onLogin={handleLogin} />;
+    return <Login onLogin={handleLogin} theme={theme} toggleTheme={toggleTheme} />;
   }
 
   // Force password change on first login
@@ -103,11 +105,11 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Dashboard user={user} onLogout={handleLogout} />} />
+      <Route path="/" element={<Dashboard user={user} onLogout={handleLogout} theme={theme} toggleTheme={toggleTheme} />} />
       <Route path="/connecting/:desktopId" element={<Connecting user={user} />} />
       <Route path="/mfa-setup" element={<MFASetup user={user} />} />
       {isAdmin && (
-        <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} />}>
+        <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} theme={theme} toggleTheme={toggleTheme} />}>
           <Route index element={<Navigate to="overview" />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="users" element={<AdminUsers />} />

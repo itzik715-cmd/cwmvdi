@@ -1,10 +1,12 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { User } from "../../types";
 
 interface Props {
   user: User;
   onLogout: () => void;
+  theme: "dark" | "light";
+  toggleTheme: () => void;
 }
 
 const navItems = [
@@ -17,22 +19,12 @@ const navItems = [
   { to: "/admin/settings", label: "Settings", icon: "\u2699" },
 ];
 
-export default function AdminLayout({ user, onLogout }: Props) {
+export default function AdminLayout({ user, onLogout, theme, toggleTheme }: Props) {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    return (localStorage.getItem("vdi-theme") as "dark" | "light") || "dark";
-  });
   const [collapsed, setCollapsed] = useState(false);
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("vdi-theme", theme);
-  }, [theme]);
-
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
-
   return (
-    <div className="admin-shell" data-theme={theme}>
+    <div className="admin-shell">
       <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
         <div className="sidebar-brand" onClick={() => navigate("/")}>
           <div className="brand-icon">V</div>

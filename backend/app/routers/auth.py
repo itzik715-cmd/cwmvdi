@@ -65,12 +65,12 @@ def _record_failed_attempt(key: str) -> None:
     """Track failed attempts for progressive lockout."""
     _failed_attempts[key] += 1
     count = _failed_attempts[key]
-    if count >= 10:
-        _lockout_until[key] = time.time() + 3600  # 1 hour
-    elif count >= 7:
-        _lockout_until[key] = time.time() + 900  # 15 minutes
-    elif count >= 5:
+    if count >= 15:
+        _lockout_until[key] = time.time() + 1800  # 30 minutes
+    elif count >= 10:
         _lockout_until[key] = time.time() + 300  # 5 minutes
+    elif count >= 7:
+        _lockout_until[key] = time.time() + 60  # 1 minute
 
 
 def _clear_failed_attempts(key: str) -> None:

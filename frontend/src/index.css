@@ -781,3 +781,15 @@ tbody tr:hover { background: var(--bg-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Theme toggle button in user topbar */
+.topbar-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-theme-btn:hover {
+  background: var(--primary-glow);
+  color: var(--primary);
+  border-color: transparent;
+}
