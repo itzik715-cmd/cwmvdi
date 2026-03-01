@@ -188,6 +188,15 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
         _clear_failed_attempts(lockout_key)
 
+        # Skip DUO if user has MFA bypass enabled
+        if user.mfa_bypass:
+            token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
+            access_token = create_access_token(
+                user_id=user.id, tenant_id=user.tenant_id, role=user.role,
+                expires_delta=token_expiry,
+            )
+            return {"requires_mfa": False, "requires_duo": False, "access_token": access_token, "token_type": "bearer"}
+
         # DUO preauth
         duo_skey = decrypt_value(tenant.duo_skey_encrypted)
         duo_client = DuoClient(tenant.duo_ikey, duo_skey, tenant.duo_api_host)
