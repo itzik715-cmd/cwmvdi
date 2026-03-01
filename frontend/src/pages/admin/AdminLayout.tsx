@@ -30,7 +30,7 @@ export default function AdminLayout({ user, onLogout, theme, toggleTheme }: Prop
       <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
         <div className="sidebar-brand" onClick={() => navigate("/")}>
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt="" style={{ width: 36, height: 36, objectFit: "contain", flexShrink: 0 }} />
+            <img src={branding.logo_url} alt="" style={{ width: 44, height: 44, objectFit: "contain", flexShrink: 0 }} />
           ) : (
             <div className="brand-icon">V</div>
           )}

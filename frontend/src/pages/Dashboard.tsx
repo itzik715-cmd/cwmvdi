@@ -22,7 +22,7 @@ export default function Dashboard({ user, onLogout, theme, toggleTheme }: Props)
       <div className="dashboard-topbar">
         <div className="dashboard-brand">
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt="" style={{ width: 38, height: 38, objectFit: "contain" }} />
+            <img src={branding.logo_url} alt="" style={{ width: 48, height: 48, objectFit: "contain" }} />
           ) : (
             <div className="dashboard-brand-icon">V</div>
           )}

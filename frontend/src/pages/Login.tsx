@@ -168,7 +168,7 @@ export default function Login({ onLogin, theme, toggleTheme }: Props) {
       <div className="card" style={{ width: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           {branding.logo_url && (
-            <img src={branding.logo_url} alt="" style={{ width: 72, height: 72, objectFit: "contain", marginBottom: 12 }} />
+            <img src={branding.logo_url} alt="" style={{ width: 120, height: 120, objectFit: "contain", marginBottom: 12 }} />
           )}
           <h1 style={{ fontSize: 28, fontWeight: 800, color: branding.brand_name ? "#3b82f6" : undefined }}>{branding.brand_name || "CwmVDI"}</h1>
           <p style={{ color: "var(--text-muted)", marginTop: 8 }}>
