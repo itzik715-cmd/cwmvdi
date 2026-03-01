@@ -12,6 +12,7 @@ interface Props {
 
 const navItems = [
   { to: "/admin/overview", label: "Overview", icon: "\u229E" },
+  { to: "/admin/analytics", label: "Analytics", icon: "\uD83D\uDCCA" },
   { to: "/admin/desktops", label: "Desktops", icon: "\uD83D\uDDA5" },
   { to: "/admin/users", label: "Users", icon: "\uD83D\uDC65" },
   { to: "/admin/networks", label: "Networks", icon: "\uD83C\uDF10" },

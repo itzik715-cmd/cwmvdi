@@ -1285,6 +1285,206 @@ async def get_audit_log(
     ]
 
 
+# ── Analytics ──
+
+
+@router.get("/analytics")
+async def get_analytics(
+    days: int = 30,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Comprehensive usage analytics for the manager dashboard."""
+    now = datetime.utcnow()
+    period_start = now - timedelta(days=days)
+
+    # ── All desktops + users for this tenant ──
+    all_desktops = (await db.execute(
+        select(DesktopAssignment).where(
+            DesktopAssignment.tenant_id == admin.tenant_id,
+            DesktopAssignment.is_active == True,
+        )
+    )).scalars().all()
+    desktop_map = {d.id: d for d in all_desktops}
+
+    all_users = (await db.execute(
+        select(User).where(User.tenant_id == admin.tenant_id, User.is_active == True)
+    )).scalars().all()
+    user_map = {u.id: u for u in all_users}
+
+    # ── Sessions in period ──
+    period_sessions = (await db.execute(
+        select(Session).where(Session.started_at >= period_start)
+    )).scalars().all()
+
+    # ── Summary ──
+    total_seconds = 0
+    active_desktop_ids = set()
+    active_user_ids = set()
+    browser_count = 0
+    native_count = 0
+
+    for s in period_sessions:
+        dur = ((s.ended_at or now) - s.started_at).total_seconds()
+        total_seconds += dur
+        active_desktop_ids.add(s.desktop_id)
+        active_user_ids.add(s.user_id)
+        if s.connection_type == "native":
+            native_count += 1
+        else:
+            browser_count += 1
+
+    # ── Daily usage ──
+    daily = {}
+    for i in range(days):
+        d = (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+        daily[d] = {"date": d, "hours": 0.0, "sessions": 0}
+
+    for s in period_sessions:
+        day_key = s.started_at.strftime("%Y-%m-%d")
+        if day_key in daily:
+            dur = ((s.ended_at or now) - s.started_at).total_seconds()
+            daily[day_key]["hours"] = round(daily[day_key]["hours"] + dur / 3600, 2)
+            daily[day_key]["sessions"] += 1
+
+    # ── Top desktops ──
+    desktop_hours = {}
+    for s in period_sessions:
+        did = s.desktop_id
+        if did not in desktop_hours:
+            desktop_hours[did] = {"hours": 0.0, "sessions": 0}
+        dur = ((s.ended_at or now) - s.started_at).total_seconds()
+        desktop_hours[did]["hours"] += dur / 3600
+        desktop_hours[did]["sessions"] += 1
+
+    top_desktops = []
+    for did, stats in sorted(desktop_hours.items(), key=lambda x: x[1]["hours"], reverse=True)[:10]:
+        d = desktop_map.get(did)
+        if not d:
+            continue
+        user = user_map.get(d.user_id)
+        top_desktops.append({
+            "desktop_id": str(did),
+            "display_name": d.display_name,
+            "user": user.username if user else "unassigned",
+            "hours": round(stats["hours"], 1),
+            "sessions": stats["sessions"],
+        })
+
+    # ── Top users ──
+    user_hours = {}
+    user_desktops = {}
+    for s in period_sessions:
+        uid = s.user_id
+        if uid not in user_hours:
+            user_hours[uid] = {"hours": 0.0, "sessions": 0}
+            user_desktops[uid] = set()
+        dur = ((s.ended_at or now) - s.started_at).total_seconds()
+        user_hours[uid]["hours"] += dur / 3600
+        user_hours[uid]["sessions"] += 1
+        user_desktops[uid].add(s.desktop_id)
+
+    top_users = []
+    for uid, stats in sorted(user_hours.items(), key=lambda x: x[1]["hours"], reverse=True)[:10]:
+        u = user_map.get(uid)
+        top_users.append({
+            "user_id": str(uid),
+            "username": u.username if u else "unknown",
+            "hours": round(stats["hours"], 1),
+            "sessions": stats["sessions"],
+            "desktop_count": len(user_desktops.get(uid, set())),
+        })
+
+    # ── Idle desktops (not used in 14+ days) ──
+    # Find last session for each desktop
+    last_session_map = {}
+    for s in (await db.execute(
+        select(Session.desktop_id, func.max(Session.started_at).label("last_used"))
+        .group_by(Session.desktop_id)
+    )).all():
+        last_session_map[s.desktop_id] = s.last_used
+
+    idle_desktops = []
+    for d in all_desktops:
+        last_used = last_session_map.get(d.id)
+        if last_used:
+            days_idle = (now - last_used).days
+        else:
+            days_idle = (now - d.created_at).days if d.created_at else 999
+            last_used = d.created_at
+
+        if days_idle >= 14:
+            user = user_map.get(d.user_id)
+            idle_desktops.append({
+                "desktop_id": str(d.id),
+                "display_name": d.display_name,
+                "user": user.username if user else "unassigned",
+                "last_used": last_used.isoformat() + "Z" if last_used else None,
+                "days_idle": days_idle,
+            })
+    idle_desktops.sort(key=lambda x: x["days_idle"], reverse=True)
+
+    # ── Per-desktop breakdown ──
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_month_start = (month_start - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # Get all sessions for current + previous month
+    all_month_sessions = (await db.execute(
+        select(Session).where(Session.started_at >= prev_month_start)
+    )).scalars().all()
+
+    per_desktop_this = {}
+    per_desktop_prev = {}
+    for s in all_month_sessions:
+        dur = ((s.ended_at or now) - s.started_at).total_seconds() / 3600
+        if s.started_at >= month_start:
+            if s.desktop_id not in per_desktop_this:
+                per_desktop_this[s.desktop_id] = {"hours": 0.0, "sessions": 0}
+            per_desktop_this[s.desktop_id]["hours"] += dur
+            per_desktop_this[s.desktop_id]["sessions"] += 1
+        elif s.started_at >= prev_month_start:
+            if s.desktop_id not in per_desktop_prev:
+                per_desktop_prev[s.desktop_id] = {"hours": 0.0, "sessions": 0}
+            per_desktop_prev[s.desktop_id]["hours"] += dur
+            per_desktop_prev[s.desktop_id]["sessions"] += 1
+
+    per_desktop = []
+    for d in all_desktops:
+        this_m = per_desktop_this.get(d.id, {"hours": 0, "sessions": 0})
+        prev_m = per_desktop_prev.get(d.id, {"hours": 0, "sessions": 0})
+        change = None
+        if prev_m["hours"] > 0:
+            change = round(((this_m["hours"] - prev_m["hours"]) / prev_m["hours"]) * 100, 1)
+        user = user_map.get(d.user_id)
+        per_desktop.append({
+            "desktop_id": str(d.id),
+            "display_name": d.display_name,
+            "user": user.username if user else "unassigned",
+            "hours_this_month": round(this_m["hours"], 1),
+            "hours_last_month": round(prev_m["hours"], 1),
+            "change_pct": change,
+            "sessions_this_month": this_m["sessions"],
+            "current_state": d.current_state,
+            "vm_cpu": d.vm_cpu,
+            "vm_ram_mb": d.vm_ram_mb,
+            "vm_disk_gb": d.vm_disk_gb,
+        })
+
+    return {
+        "period_days": days,
+        "total_hours": round(total_seconds / 3600, 1),
+        "total_sessions": len(period_sessions),
+        "active_desktops": len(active_desktop_ids),
+        "active_users": len(active_user_ids),
+        "daily_usage": list(daily.values()),
+        "top_desktops": top_desktops,
+        "top_users": top_users,
+        "idle_desktops": idle_desktops,
+        "per_desktop": per_desktop,
+        "connection_types": {"browser": browser_count, "native": native_count},
+    }
+
+
 # ── Settings ──
 
 

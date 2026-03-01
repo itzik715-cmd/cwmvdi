@@ -91,6 +91,7 @@ export const adminApi = {
   listSessions: () => api.get("/admin/sessions"),
   terminateSession: (id: string) => api.delete(`/admin/sessions/${id}`),
 
+  getAnalytics: (days?: number) => api.get("/admin/analytics", { params: { days } }),
   getAudit: (limit?: number) => api.get("/admin/audit", { params: { limit } }),
 
   getSettings: () => api.get("/admin/settings"),

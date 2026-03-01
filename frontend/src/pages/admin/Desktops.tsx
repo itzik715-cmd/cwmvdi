@@ -349,7 +349,8 @@ export default function Desktops() {
                   onClick={() => openUsageModal(d)}
                   title="Click to view usage"
                 >
-                  {d.display_name}
+                  <span style={{ textDecoration: "underline", textUnderlineOffset: 3 }}>{d.display_name}</span>
+                  <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.6 }}>{"\uD83D\uDCCA"}</span>
                 </td>
                 <td style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                   {d.vm_cpu || d.vm_ram_mb || d.vm_disk_gb ? (

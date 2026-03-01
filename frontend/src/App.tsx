@@ -13,6 +13,7 @@ import AdminAuditLog from "./pages/admin/AuditLog";
 import AdminSettings from "./pages/admin/Settings";
 import AdminNetworks from "./pages/admin/Networks";
 import AdminOverview from "./pages/admin/AdminOverview";
+import AdminAnalytics from "./pages/admin/Analytics";
 import { useTheme } from "./hooks/useTheme";
 import { api } from "./services/api";
 
@@ -112,6 +113,7 @@ function App() {
         <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} theme={theme} toggleTheme={toggleTheme} />}>
           <Route index element={<Navigate to="overview" />} />
           <Route path="overview" element={<AdminOverview />} />
+          <Route path="analytics" element={<AdminAnalytics />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="desktops" element={<AdminDesktops />} />
           <Route path="networks" element={<AdminNetworks />} />
