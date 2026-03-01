@@ -91,6 +91,9 @@ def _get_cloudwm(tenant: Tenant) -> CloudWMClient:
 
 async def _verify_connection_mfa(user: User, mfa_code: str | None, db: AsyncSession) -> None:
     """Verify MFA code for desktop connections. Uses DUO if enabled, TOTP otherwise."""
+    if user.mfa_bypass:
+        return  # Admin has bypassed MFA for this user
+
     tenant = await _get_tenant(db, user.tenant_id)
 
     duo_active = (

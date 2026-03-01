@@ -14,6 +14,7 @@ export default function Users() {
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [mfaBusyId, setMfaBusyId] = useState<string | null>(null);
   const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
+  const [bypassBusyId, setBypassBusyId] = useState<string | null>(null);
 
   // Reset password modal state
   const [resetPwUser, setResetPwUser] = useState<AdminUser | null>(null);
@@ -106,6 +107,18 @@ export default function Users() {
     }
   };
 
+  const handleToggleBypass = async (id: string) => {
+    setBypassBusyId(id);
+    try {
+      await adminApi.toggleMfaBypass(id);
+      fetchUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to toggle MFA bypass");
+    } finally {
+      setBypassBusyId(null);
+    }
+  };
+
   const getMfaStatus = (u: AdminUser): { label: string; color: string } => {
     if (u.mfa_enabled) return { label: "Active", color: "var(--success)" };
     if (u.mfa_required) return { label: "Pending Setup", color: "var(--warning)" };
@@ -129,6 +142,7 @@ export default function Users() {
               <th>Email</th>
               <th>Role</th>
               <th>MFA</th>
+              <th>MFA Bypass</th>
               <th>Status</th>
               <th>Created</th>
               <th></th>
@@ -208,6 +222,18 @@ export default function Users() {
                         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>...</span>
                       )}
                     </div>
+                  </td>
+                  <td>
+                    {u.is_active && (
+                      <button
+                        className={u.mfa_bypass ? "btn-danger" : "btn-ghost"}
+                        style={{ padding: "2px 10px", fontSize: 11, minWidth: 60 }}
+                        onClick={() => handleToggleBypass(u.id)}
+                        disabled={bypassBusyId === u.id}
+                      >
+                        {bypassBusyId === u.id ? "..." : u.mfa_bypass ? "On" : "Off"}
+                      </button>
+                    )}
                   </td>
                   <td>{u.is_active ? "Active" : "Inactive"}</td>
                   <td style={{ color: "var(--text-muted)", fontSize: 13 }}>

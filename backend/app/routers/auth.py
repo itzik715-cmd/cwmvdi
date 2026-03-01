@@ -244,8 +244,8 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     _clear_failed_attempts(lockout_key)
     token_expiry = timedelta(hours=4) if is_admin else timedelta(hours=12)
 
-    # MFA at login is only required for admins
-    if is_admin and user.mfa_enabled and user.mfa_secret:
+    # MFA at login is only required for admins (unless bypassed)
+    if is_admin and user.mfa_enabled and user.mfa_secret and not user.mfa_bypass:
         mfa_token = create_access_token(
             user_id=user.id, tenant_id=user.tenant_id, role="mfa_pending",
             expires_delta=_MFA_TOKEN_EXPIRY,
@@ -386,6 +386,7 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         "mfa_enabled": user.mfa_enabled,
         "mfa_setup_required": mfa_setup_required,
         "mfa_type": mfa_type,
+        "mfa_bypass": user.mfa_bypass,
         "must_change_password": user.must_change_password,
         "tenant_id": str(user.tenant_id),
     }

@@ -25,6 +25,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user")  # user | admin | superadmin
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_bypass: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="users")

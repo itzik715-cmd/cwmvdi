@@ -62,8 +62,8 @@ export default function DesktopCard({ desktop, user }: Props) {
   const [showDuoPasscode, setShowDuoPasscode] = useState(false);
 
   const mfaType = user.mfa_type || "totp";
-  const needsMFA = mfaType === "duo" ? true : user.mfa_enabled;
-  const needsMFASetup = mfaType === "duo" ? false : user.mfa_setup_required;
+  const needsMFA = user.mfa_bypass ? false : (mfaType === "duo" ? true : user.mfa_enabled);
+  const needsMFASetup = user.mfa_bypass ? false : (mfaType === "duo" ? false : user.mfa_setup_required);
 
   const state = stateConfig[desktop.current_state] || stateConfig.unknown;
   const hasSpecs = desktop.vm_cpu || desktop.vm_ram_mb || desktop.vm_disk_gb;

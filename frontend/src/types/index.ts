@@ -6,6 +6,7 @@ export interface User {
   mfa_enabled: boolean;
   mfa_setup_required?: boolean;
   mfa_type?: "totp" | "duo";
+  mfa_bypass?: boolean;
   duo_auth_mode?: "password_duo" | "duo_only";
   must_change_password: boolean;
   tenant_id: string;
@@ -49,6 +50,7 @@ export interface AdminUser {
   role: string;
   mfa_enabled: boolean;
   mfa_required: boolean;
+  mfa_bypass: boolean;
   is_active: boolean;
   created_at: string;
 }

@@ -156,6 +156,7 @@ async def list_users(
             "role": u.role,
             "mfa_enabled": u.mfa_enabled,
             "mfa_required": u.mfa_required,
+            "mfa_bypass": u.mfa_bypass,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat(),
         }
@@ -309,6 +310,29 @@ async def disable_mfa(
     user.mfa_secret = None
     await db.commit()
     return {"message": "MFA disabled for user"}
+
+
+@router.post("/users/{user_id}/toggle-mfa-bypass")
+async def toggle_mfa_bypass(
+    user_id: str,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle MFA bypass for a user."""
+    result = await db.execute(
+        select(User).where(
+            User.id == uuid.UUID(user_id), User.tenant_id == admin.tenant_id
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.mfa_bypass = not user.mfa_bypass
+    await db.commit()
+    status = "enabled" if user.mfa_bypass else "disabled"
+    logger.info("Admin %s %s MFA bypass for user %s", admin.username, status, user.username)
+    return {"message": f"MFA bypass {status}", "mfa_bypass": user.mfa_bypass}
 
 
 class ResetPasswordRequest(BaseModel):
