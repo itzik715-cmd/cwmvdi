@@ -33,7 +33,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://cwmvdi:${POSTGRES_PASSWORD}@postgres:5432/cwmvdi
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     ports:
-      - "33890-33990:33890-33990"
+      - "33500-33999:33500-33999"
+    cap_add:
+      - NET_ADMIN
     depends_on:
       postgres:
         condition: service_healthy

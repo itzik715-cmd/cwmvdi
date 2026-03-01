@@ -12,7 +12,9 @@ is_production = os.getenv("ENVIRONMENT", "production") != "development"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup — clean up orphaned socat proxies from previous runs
+    from app.services.rdp_proxy import RDPProxyManager
+    await RDPProxyManager.cleanup_orphan_proxies()
     yield
     # Shutdown
 

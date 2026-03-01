@@ -297,13 +297,13 @@ async def download_rdp_file(
     desktop.current_state = "on"
     desktop.last_state_check = datetime.utcnow()
 
-    # 2. Start socat proxy
+    # 2. Start socat proxy (restricted to client IP)
     proxy_mgr = RDPProxyManager()
-    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip)
+    client_ip = request.client.host if request.client else None
+    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip, client_ip=client_ip)
 
     # 3. Create session record
     public_ip = settings.server_public_ip or settings.portal_domain
-    client_ip = request.client.host if request.client else None
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
@@ -373,13 +373,13 @@ async def native_rdp(
     desktop.current_state = "on"
     desktop.last_state_check = datetime.utcnow()
 
-    # 2. Start socat proxy
+    # 2. Start socat proxy (restricted to client IP)
     proxy_mgr = RDPProxyManager()
-    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip)
+    client_ip = request.client.host if request.client else None
+    port, pid = await proxy_mgr.start_proxy(desktop.vm_private_ip, client_ip=client_ip)
 
     # 3. Create session record
     public_ip = settings.server_public_ip or settings.portal_domain
-    client_ip = request.client.host if request.client else None
     session = Session(
         user_id=user.id,
         desktop_id=desktop.id,
@@ -421,10 +421,10 @@ async def disconnect_desktop(
     session.ended_at = datetime.utcnow()
     session.end_reason = "user_disconnect"
 
-    # Clean up TCP proxy if this was a native session
+    # Clean up TCP proxy and iptables rules if this was a native session
     if session.proxy_pid:
         proxy_mgr = RDPProxyManager()
-        await proxy_mgr.stop_proxy(session.proxy_pid)
+        await proxy_mgr.stop_proxy(session.proxy_pid, port=session.proxy_port)
 
     await db.commit()
     return {"message": "Disconnected"}

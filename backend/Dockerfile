@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev socat \
+    build-essential libpq-dev socat iptables procps \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -11,9 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Run as non-root user
-RUN useradd -r -s /bin/false appuser && chown -R appuser:appuser /app
-USER appuser
+# Note: runs as root inside container because iptables requires it
+# Container security is handled via NET_ADMIN capability and Docker isolation
 
 EXPOSE 8000
 

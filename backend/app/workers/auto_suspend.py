@@ -110,6 +110,10 @@ async def _check_idle_and_suspend_async():
                             os.kill(session.proxy_pid, signal.SIGTERM)
                         except ProcessLookupError:
                             pass
+                        # Clean up iptables rules for this port
+                        if session.proxy_port:
+                            from app.services.rdp_proxy import RDPProxyManager
+                            await RDPProxyManager._remove_iptables_rules(session.proxy_port)
 
                     session.ended_at = datetime.utcnow()
                     session.end_reason = "idle_timeout"
